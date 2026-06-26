@@ -129,7 +129,7 @@ def run_crossover():
 
     rng = np.random.default_rng(1)
     rows = []
-    for n in (10_000, 100_000, 1_000_000):
+    for n in (10_000, 100_000, 1_000_000, 5_000_000, 10_000_000):
         k = max(2, n // 40)
         X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
         y = rng.normal(size=n)

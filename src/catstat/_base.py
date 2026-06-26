@@ -15,7 +15,10 @@ from sklearn.utils.validation import check_is_fitted
 
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import (
-    kfold_mean_oof_fast,
+    complement_moments,
+    factorize_active,
+    finalize_dispersion_oof,
+    finalize_mean_oof,
     loo_encode,
     make_folds,
     ordered_encode,
@@ -37,6 +40,7 @@ from .backends._dispatch import backend_module, select_backend
 
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
+_ADDITIVE_STATS = frozenset({"mean", "var", "std"})  # stats the single-pass kernel can finalize
 
 
 class _BaseStatEncoder(TransformerMixin, BaseEstimator):
@@ -240,10 +244,15 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         return vals
 
     # ---- per-statistic fitting ---------------------------------------------------------------
-    def _fit_all(self, Xdf, y_arr):
-        """Return the full encoding tables: ``{(feature, stat, class): (Series, fallback)}``."""
+    def _fit_all(self, Xdf, y_arr, specs=None):
+        """Return the encoding tables ``{(feature, stat, class): (Series, fallback)}``.
+
+        ``specs`` defaults to all stats; the hybrid OOF slow path passes only the non-additive
+        specs so the additive columns (already done by the single-pass kernel) cost nothing here.
+        """
         tables = {}
         hm = self.handle_missing
+        specs = self._specs if specs is None else specs
         for feat, cols in self._units:
             keys_full, missing_mask = self._unit_keys(Xdf, cols)
             if hm == "error" and missing_mask.any():
@@ -253,7 +262,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             sel = np.ones(len(keys_full), dtype=bool) if hm == "value" else ~missing_mask
             keys = keys_full[sel]
             n_total = int(sel.sum())
-            for spec in self._specs:
+            for spec in specs:
                 if spec.name == "count":
                     tables[(feat, "count", None)] = self._fit_count(keys, False, n_total)
                 elif spec.name == "frequency":
@@ -319,6 +328,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         hm, hu = self.handle_missing, self.handle_unknown
         cache: dict = {}
         for j, meta in enumerate(self._columns_meta):
+            if self._key(meta) not in tables:  # restricted table (hybrid slow path): skip absent
+                continue
             feat = meta.feature
             if feat not in cache:
                 keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[feat])
@@ -397,13 +408,28 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
         folds = make_folds(Xdf.shape[0], y_arr, splitter)
-        # Fast path: when every target-dependent column is a mean and the CV partitions the rows,
-        # compute all folds' out-of-fold means in one pass via complement subtraction instead of
-        # re-fitting a group-by per fold. Mathematically identical (allclose; leakage-audited).
-        if all(m.stat == "mean" for m in self._columns_meta if m.target_dependent):
-            fold_id = self._partition_fold_id(folds, Xdf.shape[0])
-            if fold_id is not None:
-                return self._kfold_oof_mean_fast(Xdf, y_arr, shape, fold_id, len(folds))
+        # Fast path: additive stats (mean/var/std) are reconstructed from one composite (fold, key)
+        # aggregation via complement subtraction instead of a per-fold group-by loop -- exactly
+        # equivalent (allclose; leakage-audited). Hybrid: when both additive and non-additive
+        # (median/min/max/skew/custom) stats are requested, the additive columns take the fast
+        # kernel and only the non-additive ones fall to the per-fold loop. Needs a partitioning CV.
+        add_cols = [
+            j
+            for j, m in enumerate(self._columns_meta)
+            if m.target_dependent and m.stat in _ADDITIVE_STATS
+        ]
+        fold_id = self._partition_fold_id(folds, Xdf.shape[0]) if add_cols else None
+        if fold_id is not None:
+            oof = np.full(shape, np.nan)
+            self._kfold_oof_additive_fast(Xdf, y_arr, fold_id, len(folds), oof, add_cols)
+            non_cols = [
+                j
+                for j, m in enumerate(self._columns_meta)
+                if m.target_dependent and m.stat not in _ADDITIVE_STATS
+            ]
+            if non_cols:
+                self._slow_oof_into(Xdf, y_arr, folds, oof, non_cols)
+            return oof
         oof = np.full(shape, np.nan)
         for tr, te in folds:
             tbl = self._fit_all(Xdf.iloc[tr], y_arr[tr])
@@ -425,28 +451,45 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             return None
         return fold_id
 
-    def _kfold_oof_mean_fast(self, Xdf, y_arr, shape, fold_id, n_folds):
-        """Vectorized OOF for the mean columns via :func:`kfold_mean_oof_fast` (keys built once per
-        unit, reused across a unit's class columns)."""
-        oof = np.full(shape, np.nan)
-        key_cache: dict = {}
-        for j, meta in enumerate(self._columns_meta):
-            if not (meta.target_dependent and meta.stat == "mean"):
-                continue
-            feat = meta.feature
-            if feat not in key_cache:
-                key_cache[feat] = self._unit_keys(Xdf, self._unit_cols[feat])
-            keys, missing_mask = key_cache[feat]
-            oof[:, j] = kfold_mean_oof_fast(
-                keys,
-                missing_mask,
-                self._mean_y_vector(y_arr, meta),
-                fold_id,
-                n_folds,
-                self.smooth,
-                self.handle_missing,
-                self.handle_unknown,
-            )
+    def _kfold_oof_additive_fast(self, Xdf, y_arr, fold_id, n_folds, oof, col_indices):
+        """Fill the additive (mean/var/std) OOF columns in ``col_indices`` via the single-pass
+        kernel. Per unit the keys are factorized once; for a continuous target the complement
+        moments are computed once and shared across that unit's mean/var/std columns (var/std are
+        continuous-only, so classification only ever finalizes the mean, one pass per class)."""
+        by_unit: dict = {}
+        for j in col_indices:
+            meta = self._columns_meta[j]
+            by_unit.setdefault(meta.feature, []).append((j, meta))
+        ms = getattr(self, "min_samples_category", 1)
+        for feat, items in by_unit.items():
+            keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[feat])
+            n, a, codes, n_cat = factorize_active(keys, missing_mask, self.handle_missing)
+            fid_a = fold_id[a]
+            if self.target_type_ == "continuous":
+                mom = complement_moments(n, a, codes, n_cat, fid_a, y_arr.astype(float)[a], n_folds)
+                for j, meta in items:
+                    if meta.stat == "mean":
+                        oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                    else:
+                        oof[:, j] = finalize_dispersion_oof(mom, meta.stat, ms, self.handle_unknown)
+            else:  # binary/multiclass: mean only, one moment pass per class (factorize shared)
+                for j, meta in items:
+                    yv = self._mean_y_vector(y_arr, meta)[a]
+                    mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)
+                    oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+        return oof
+
+    def _slow_oof_into(self, Xdf, y_arr, folds, oof, cols):
+        """Per-fold (slow path) OOF for the non-additive columns ``cols`` only, written into ``oof``
+        in place. Fits only the specs those columns need, so the additive columns (already encoded
+        by the single-pass kernel) cost nothing in this loop."""
+        need_stats = {self._columns_meta[j].stat for j in cols}
+        needed_specs = [s for s in self._specs if s.name in need_stats]
+        for tr, te in folds:
+            tbl = self._fit_all(Xdf.iloc[tr], y_arr[tr], specs=needed_specs)
+            sub = self._transform_array(Xdf.iloc[te], tbl)
+            for j in cols:
+                oof[te, j] = sub[:, j]
         return oof
 
     def _mean_y_vector(self, y_arr, meta):

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -83,43 +85,56 @@ def ordered_encode(keys, y, a: float, prior: float, perm: np.ndarray) -> np.ndar
     return out
 
 
-def kfold_mean_oof_fast(
-    keys, missing_mask, yv, fold_id, n_folds, smooth, handle_missing, handle_unknown
-) -> np.ndarray:
-    """Out-of-fold mean encoding for a partitioning kfold CV, in a single vectorized pass.
+class _OOFMoments(NamedTuple):
+    """Per-(fold, key) complement count/sum/sumsq plus per-fold complement totals.
 
-    Mathematically identical to fitting ``_smoothing.fit_mean_encoding`` on each fold's COMPLEMENT
-    and mapping the held-out fold's rows -- but computed without the per-fold group-by loop. Under a
-    partitioning CV (``KFold``/``StratifiedKFold``), the complement of test-fold ``f`` is exactly
-    its train set, so each fold's ``(count, sum, sumsq)`` is ``global - this_fold`` by
-    subtraction of one composite ``(fold, key)`` aggregation. The smoothing arithmetic mirrors
-    ``fit_mean_encoding`` exactly (fixed m-estimate and ``smooth='auto'`` empirical-Bayes with the
-    fold-complement population mean/variance); parity is asserted at allclose by the leakage audit.
+    Computed once per (encoding unit, target vector) by :func:`complement_moments`; each statistic's
+    finalizer reads these shared moments, so a unit's mean/var/std cost one factorize and one
+    composite ``(fold, key)`` bincount between them -- the per-fold group-by loop is avoided.
+    """
 
-    ``yv`` is the (possibly binarized, for classification) target. Returns a float array of length
-    ``n``; rows are NaN where ``handle_missing='return_nan'`` drops them, or where an unseen
-    category meets ``handle_unknown='return_nan'``.
+    n: int  # total rows (output length)
+    a: np.ndarray  # active row indices (rows that enter the statistics)
+    fid: np.ndarray  # fold id per active row
+    cc: np.ndarray  # complement count per active row
+    cs: np.ndarray  # complement sum per active row
+    css: np.ndarray  # complement sum-of-squares per active row
+    seen: np.ndarray  # cc > 0 (category present in this row's complement)
+    cn: np.ndarray  # complement count per fold
+    cs_fold: np.ndarray  # complement sum per fold
+    css_fold: np.ndarray  # complement sum-of-squares per fold
+
+
+def factorize_active(keys, missing_mask, handle_missing):
+    """Integer-code the active rows' keys once (shared across a unit's stats and classes).
+
+    Active rows are those that enter the statistics -- mirrors ``_fit_all``'s ``sel``: keep all rows
+    for handle_missing='value' (MISSING is its own key) and 'error' (no missing present by then);
+    drop missing rows for 'return_nan'. Returns ``(n, a, codes, n_cat)``.
     """
     n = len(keys)
-    out = np.full(n, np.nan, dtype=float)
-    yv = np.asarray(yv, dtype=float)
-
-    # active rows are those that enter the statistics -- mirrors `_fit_all`'s `sel`: keep all rows
-    # for handle_missing='value' (MISSING is its own key) and 'error' (no missing present by then);
-    # drop missing rows for 'return_nan'.
     active = ~missing_mask if handle_missing == "return_nan" else np.ones(n, dtype=bool)
     a = np.nonzero(active)[0]
     if a.size == 0:
-        return out
-
+        return n, a, np.empty(0, dtype=np.intp), 0
     codes, _uniq = pd.factorize(keys[a])  # integer key codes over active rows
-    n_cat = int(codes.max()) + 1
-    fid = fold_id[a]
-    y_a = yv[a]
+    return n, a, codes, int(codes.max()) + 1
+
+
+def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _OOFMoments:
+    """Out-of-fold ``(count, sum, sumsq)`` per active row, by subtraction from the grand totals of
+    one composite ``(fold, key)`` aggregation.
+
+    Under a partitioning CV (``KFold``/``StratifiedKFold``) the complement of test-fold ``f`` is
+    exactly its train set, so each fold's moments are ``global - this_fold``. ``yv_active`` is the
+    (possibly binarized) target over the active rows. This is the single pass shared by the mean,
+    var and std finalizers; parity vs the per-fold path is asserted at allclose by the audit.
+    """
+    y_a = np.asarray(yv_active, dtype=float)
     y2_a = y_a * y_a
 
     # one composite (fold, key) aggregation via flattened bincount; per-key globals by summing folds
-    comp = fid * n_cat + codes
+    comp = fid_active * n_cat + codes
     size = n_folds * n_cat
     fc = np.bincount(comp, minlength=size).astype(float)
     fs = np.bincount(comp, weights=y_a, minlength=size)
@@ -133,20 +148,40 @@ def kfold_mean_oof_fast(
     cs = gs[codes] - fs[comp]
     css = gss[codes] - fss[comp]
 
-    # per-fold complement prior: global mean (and population var for 'auto') over the other folds
-    tn = np.bincount(fid, minlength=n_folds).astype(float)
-    ts = np.bincount(fid, weights=y_a, minlength=n_folds)
-    tss = np.bincount(fid, weights=y2_a, minlength=n_folds)
-    cn = tn.sum() - tn  # > 0 for n_folds >= 2 (always: KFold rejects n_splits < 2)
-    g = (ts.sum() - ts) / cn
-    g_row = g[fid]
+    # per-fold complement totals (the fold's training set): prior mean / global var fallback
+    tn = np.bincount(fid_active, minlength=n_folds).astype(float)
+    ts = np.bincount(fid_active, weights=y_a, minlength=n_folds)
+    tss = np.bincount(fid_active, weights=y2_a, minlength=n_folds)
+    return _OOFMoments(
+        n=n,
+        a=a,
+        fid=fid_active,
+        cc=cc,
+        cs=cs,
+        css=css,
+        seen=cc > 0.0,  # category present in the complement (else -> handle_unknown)
+        cn=tn.sum() - tn,  # > 0 for n_folds >= 2 (always: KFold rejects n_splits < 2)
+        cs_fold=ts.sum() - ts,
+        css_fold=tss.sum() - tss,
+    )
 
-    seen = cc > 0.0  # category present in the complement (else -> handle_unknown)
+
+def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
+    """OOF mean encoding from the shared moments (fixed m-estimate and ``smooth='auto'``
+    empirical-Bayes with the per-fold complement population mean/variance). Identical arithmetic to
+    the original single-pass mean kernel; mirrors ``_smoothing.fit_mean_encoding`` per fold."""
+    out = np.full(mom.n, np.nan, dtype=float)
+    if mom.a.size == 0:
+        return out
+    cn, fid = mom.cn, mom.fid
+    g = mom.cs_fold / cn
+    g_row = g[fid]
+    cc, cs, css, seen = mom.cc, mom.cs, mom.css, mom.seen
     cc_safe = np.where(seen, cc, 1.0)
     with np.errstate(invalid="ignore", divide="ignore"):
         mean_c = cs / cc_safe
         if isinstance(smooth, str):  # 'auto' empirical-Bayes, per fold
-            tau2 = (tss.sum() - tss) / cn - g * g
+            tau2 = mom.css_fold / cn - g * g
             tau2_row = tau2[fid]
             var_pop = np.clip(css / cc_safe - mean_c * mean_c, 0.0, None)
             m = np.where(tau2_row > 0.0, var_pop / np.where(tau2_row > 0.0, tau2_row, 1.0), 0.0)
@@ -163,5 +198,55 @@ def kfold_mean_oof_fast(
             )
         enc = np.where(seen, enc, g_row if handle_unknown == "value" else np.nan)
 
-    out[a] = enc
+    out[mom.a] = enc
     return out
+
+
+def finalize_dispersion_oof(mom: _OOFMoments, stat, min_samples, handle_unknown) -> np.ndarray:
+    """OOF var/std encoding from the SAME shared moments -- no smoothing (honesty rule).
+
+    A seen category whose complement count is ``< max(min_samples, 1)`` or ``< 2`` (sample
+    variance undefined for a singleton, ddof=1) falls back to the per-fold complement-global
+    statistic; unseen categories (absent from the fold's complement) follow ``handle_unknown``.
+    Mirrors ``_aggregations.fit_stat_encoding`` fitted on each fold's complement and mapped to the
+    held-out rows. The complement-global sample variance is ``(ss - s**2/cn)/(cn - 1)`` (0.0 when
+    cn <= 1).
+    """
+    out = np.full(mom.n, np.nan, dtype=float)
+    if mom.a.size == 0:
+        return out
+    cn, cs_fold, css_fold, fid = mom.cn, mom.cs_fold, mom.css_fold, mom.fid
+    cc, cs, css, seen = mom.cc, mom.cs, mom.css, mom.seen
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cn_d = np.where(cn > 1, cn, 1.0)
+        g_var = np.where(cn > 1, (css_fold - cs_fold * cs_fold / cn_d) / (cn_d - 1.0), 0.0)
+        g_var_row = g_var[fid]
+        cc_pos = np.where(cc > 0, cc, 1.0)
+        mean_c = cs / cc_pos
+        var_raw = (css - cs * mean_c) / np.where(cc > 1, cc - 1.0, 1.0)  # (ss - s**2/cc)/(cc-1)
+
+    # seen but undersupported (incl. singleton: var is NaN) -> per-fold complement-global stat
+    lowcount = (cc < max(int(min_samples), 1)) | (cc < 2)
+    enc = np.where(lowcount, g_var_row, var_raw)
+    if not seen.all():
+        if handle_unknown == "error":
+            raise ValueError(
+                "Found unknown categories during out-of-fold encoding (handle_unknown='error')."
+            )
+        enc = np.where(seen, enc, g_var_row if handle_unknown == "value" else np.nan)
+    if stat == "std":
+        enc = np.sqrt(np.clip(enc, 0.0, None))  # std = sqrt(var); clip guards fp cancellation
+    out[mom.a] = enc
+    return out
+
+
+def kfold_mean_oof_fast(
+    keys, missing_mask, yv, fold_id, n_folds, smooth, handle_missing, handle_unknown
+) -> np.ndarray:
+    """Single-pass OOF mean encoding for a partitioning kfold CV (kept for back-compat; thin
+    wrapper over :func:`complement_moments` + :func:`finalize_mean_oof`)."""
+    n, a, codes, n_cat = factorize_active(keys, missing_mask, handle_missing)
+    if a.size == 0:
+        return np.full(n, np.nan, dtype=float)
+    mom = complement_moments(n, a, codes, n_cat, fold_id[a], np.asarray(yv, float)[a], n_folds)
+    return finalize_mean_oof(mom, smooth, handle_unknown)

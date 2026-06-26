@@ -117,12 +117,14 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if was_df:
             self.feature_names_in_ = np.asarray(all_cols, dtype=object)
         self._cat_cols = select_cols(Xdf, self.cols, numeric_mode)
-        # Encoding units: independent -> one per column; combination -> one joint unit.
+        # Encoding units: independent -> one per column; combination -> one joint unit; then any
+        # explicit `interactions` groups are appended as additional joint units (deduped by name).
         if mode == "combination" and len(self._cat_cols) > 1:
             joint = "+".join(str(c) for c in self._cat_cols)
             self._units = [(joint, list(self._cat_cols))]
         else:
             self._units = [(c, [c]) for c in self._cat_cols]
+        self._add_interaction_units()
         self._unit_cols = dict(self._units)
         self._fit_numeric(Xdf, numeric_mode)
         # Per-combination-unit int64 joint-code plan, learned once from full X (X-only, so
@@ -197,6 +199,38 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             self.categories_[meta.feature] = np.asarray(cats, dtype=object)
         self._set_target_mean()
         return self
+
+    def _add_interaction_units(self):
+        """Append one joint encoding unit per ``interactions`` group (additive to the base units).
+
+        Each group is a list of categorical column names encoded together as a single tuple
+        category named ``"+".join(group)`` (e.g. ``"a+b"``), on top of the independent/combination
+        base. Groups must reference selected categorical columns; units are deduped by name.
+        ``interactions=None`` (the default, and any encoder without the param) is a no-op. Joint
+        keys are GPU-host-only (KI-018)."""
+        interactions = getattr(self, "interactions", None)
+        if not interactions:
+            return
+        if not isinstance(interactions, (list, tuple)) or not all(
+            isinstance(g, (list, tuple)) and len(g) > 0 for g in interactions
+        ):
+            raise ValueError(
+                "interactions must be a list of non-empty lists of column names, "
+                "e.g. [['a', 'b'], ['a', 'c']]."
+            )
+        seen = {name for name, _ in self._units}
+        for group in interactions:
+            cols_g = list(group)
+            missing = [c for c in cols_g if c not in self._cat_cols]
+            if missing:
+                raise ValueError(
+                    f"interactions reference columns {missing} not among the encoded categorical "
+                    f"columns {list(self._cat_cols)}."
+                )
+            name = "+".join(str(c) for c in cols_g)
+            if name not in seen:
+                self._units.append((name, cols_g))
+                seen.add(name)
 
     def _set_target_mean(self):
         if not self._is_supervised() or "mean" not in self.stats_:

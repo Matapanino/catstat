@@ -86,4 +86,16 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Published: GitHub Matapanino/catstat (public) — `main` + tag `v0.1.0` + release pushed
   2026-06-26. PyPI upload pending the maintainer's token (twine can't prompt in the sandbox).
 
+## 2026-06-26 — release automation (tag-driven PyPI Trusted Publishing)
+- Hypothesis: the manual `twine upload` release step can be replaced by a `v*`-tag-triggered GitHub
+  Actions workflow that publishes to PyPI via Trusted Publishing (OIDC, no stored token).
+- Setup: new `.github/workflows/release.yml`; version 0.1.0→0.1.1 (pyproject + `__init__` in sync);
+  CHANGELOG `## [0.1.1]` opened; `docs/publishing_checklist.md` rewritten. CPU-only macOS;
+  `scripts/check.sh`.
+- Result: KEEP — green gate still green (88 passed / 2 GPU-skipped); both workflow YAMLs parse;
+  `python -m build` + `twine check` PASSED for catstat-0.1.1 sdist+wheel. No library behavior or
+  invariant changed; the workflow fires only on a `v*` tag and guards tag↔version.
+- Verdict: docs/verdicts/2026-06-26-release-automation-verdict.md
+- Maintainer follow-up: one-time PyPI Trusted-Publisher config, then `git tag v0.1.1` to publish.
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

@@ -3,7 +3,9 @@
 This roadmap is **honest about status**. As of **2026-06-26** the library is **release-ready at
 0.1.0**: M0 + Phase 2 (GPU validated; auto-GPU disabled pending perf) + Phase 3 (skew/custom stats,
 loo/ordered schemes, polars output) are implemented and green on `scripts/check.sh`; the package
-builds and `twine check` passes. PyPI upload + API docs are the remaining maintainer steps.
+builds and `twine check` passes. A release-polish arc → **0.1.1** is underway (release automation
+done; README, API docs, sklearn-compat hardening, hygiene next); the PyPI upload + one-time
+Trusted-Publisher setup remain the maintainer's.
 
 > `MVP / Phase 2 / Phase 3` are **capability tiers**, not package versions.
 
@@ -56,7 +58,11 @@ builds and `twine check` passes. PyPI upload + API docs are the remaining mainta
 - ✅ **Release prep (0.1.0)**: `LICENSE`, `CHANGELOG.md`, version bump (pyproject + `__init__` in
   sync), `docs/publishing_checklist.md`, `release-prep` skill. **Build verified** — sdist + wheel
   build, `twine check` passes, clean-venv install imports on sklearn 1.9. Upload/tag = maintainer.
-- ⏳ Advanced metadata routing, estimator-check hardening, API docs (pdoc), the actual PyPI upload.
+- ✅ **Release automation (0.1.1)**: `.github/workflows/release.yml` — a `v*` tag builds + publishes
+  to PyPI via **Trusted Publishing** (OIDC, no token), guarded by a tag↔version check; checklist
+  rewritten (automated path + manual fallback). Opened the 0.1.1 cycle (version bump + CHANGELOG).
+- ⏳ README polish, API docs (pdoc + Pages), estimator-check hardening (KI-012), project hygiene;
+  then the maintainer's one-time PyPI Trusted-Publisher setup + `v0.1.1` tag.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -69,7 +75,9 @@ builds and `twine check` passes. PyPI upload + API docs are the remaining mainta
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** 0.1.0 is published on GitHub (Matapanino/catstat — `main`, tag `v0.1.0`, and a
-> release). The only remaining publish step is `twine upload dist/*` to **PyPI** (needs the
-> maintainer's API token; run locally — see `docs/publishing_checklist.md`). Optional follow-ups:
-> API docs (pdoc), estimator-check hardening, and the GPU on-device perf redesign (KI-020).
+> **Next task:** release-polish arc → **0.1.1** is underway. ✅ Commit 1: release automation
+> (`.github/workflows/release.yml`, tokenless Trusted Publishing) + opened 0.1.1. **Next:** README
+> polish (badges, honest status, install, stat/feature table, API-docs link); then API docs
+> (pdoc + GitHub Pages), sklearn estimator-check hardening (KI-012), and project-hygiene files.
+> v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the maintainer's; the GPU
+> on-device perf redesign (KI-020) is the larger optional follow-up.

@@ -2,7 +2,7 @@
 
 - Date: 2026-06-26
 - Branch: `feat/numeric-target-encoding`
-- Backend: cpu (GPU parity deferred to the Colab loop; binning is host-side numpy)
+- Backend: cpu + GPU (T4 via Colab — numeric CPU/GPU parity validated 2026-06-26, max|Δ| ~1e-17)
 - Artifacts:
   - `benchmarks/results/2026-06-26-numeric-te-eval.json` (CV-quality eval, 5 seeds)
   - `benchmarks/eval_numeric.py` (reproducible eval), `docs/notes/2026-06-26-numeric-te-prior-art.md`
@@ -69,7 +69,7 @@ signal, the 0.375 case) is worse than binning a categorical code. Both match the
 literature-backed recommendation. No committed perf baseline (`baseline-cpu.json`) is changed.
 
 ## Follow-ups
-- GPU parity for the binned/direct numeric cases via `scripts/colab_gpu_parity.sh` (maintainer-run);
-  binning is host-side numpy so allclose is expected — confirm before claiming GPU support.
+- ✅ GPU parity validated on T4 (2026-06-26): `numeric_auto`/`numeric_bin` CPU/GPU allclose
+  (max|Δ| ~1e-17) after the string-key fix (cuDF rejects object-dtype int keys).
 - Numeric binning for `CountEncoder`/`FrequencyEncoder` (count/frequency of bins) — see KI-030.
 - Custom/explicit bin edges and a min-bin-size knob — `n_bins` + `min_samples_category` cover MVP.

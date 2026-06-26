@@ -92,8 +92,9 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 - ✅ **Empirically validated**: downstream Ridge 5-fold CV R² **0.034 (raw) → 0.91 (auto, n_bins=10)**;
   defaults `n_bins=10` / `cardinality_threshold=10` set by verdict. `benchmarks/eval_numeric.py`,
   `docs/verdicts/2026-06-26-numeric-te-verdict.md`, `docs/notes/2026-06-26-numeric-te-prior-art.md`.
-- ⏳ GPU parity for binned/direct numeric: first T4 run hit `MixedTypeError` (cuDF rejects object-dtype
-  int keys) → fixed by emitting **string** keys; re-verification pending a maintainer Colab re-run.
+- ✅ GPU parity for binned/direct numeric **validated on T4 (2026-06-26)**: `numeric_auto`/`numeric_bin`
+  CPU/GPU allclose (max|Δ| ~1e-17). First run hit `MixedTypeError` (cuDF rejects object-dtype int keys)
+  → fixed by emitting **string** keys.
 - ⏳ Numeric binning for `Count`/`Frequency` (KI-030).
 
 ## Recommended implementation order (PR-sized)

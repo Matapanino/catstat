@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Test / lint / coverage caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Benchmark scratch (committed baselines live in benchmarks/results/baseline-*.json)
+benchmarks/results/run.json
+benchmarks/results/_tmp_*.json
+
+# Env / editor
+.venv/
+venv/
+.DS_Store

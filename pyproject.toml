@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "catstat"
+version = "0.0.1"
+description = "Unified CPU/GPU statistical categorical encoding: leakage-safe target encoding generalized to arbitrary statistics, with one sklearn-compatible API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Masaya Kawamata", email = "mkawamata038@gmail.com" }]
+keywords = ["target-encoding", "categorical", "feature-engineering", "scikit-learn", "gpu"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scikit-learn>=1.2",
+]
+
+[project.optional-dependencies]
+# GPU backend (backend="gpu"/"auto" on an NVIDIA box). Not installed on CPU-only machines;
+# the library imports and runs fully without it. RAPIDS uses CUDA 12 wheels here.
+gpu = ["cudf-cu12>=24.2", "cupy-cuda12x>=12"]
+# Benchmark + parity comparison tooling (kept out of src/).
+bench = ["scikit-learn>=1.4"]
+# API reference generation.
+docs = ["pdoc>=14"]
+dev = ["pytest>=7.0", "pytest-cov>=4", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/Matapanino/catstat"
+Repository = "https://github.com/Matapanino/catstat"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/catstat"]
+force-include = { "src/catstat/py.typed" = "catstat/py.typed" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: requires a GPU + RAPIDS (cudf/cupy); skipped on CPU-only machines and CI",
+]
+
+[tool.coverage.run]
+source = ["catstat"]
+branch = true
+# GPU path is exercised only on Colab; omit it from the always-installed CPU coverage lane.
+omit = ["*/backends/_gpu.py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]

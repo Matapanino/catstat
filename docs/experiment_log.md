@@ -1,0 +1,41 @@
+# `catstat` — Experiment Log (append-only)
+
+One line (or short block) per experiment, **including null and negative results**, so no future
+session retries a dead end. Newest at the top. Each entry links its verdict when one exists.
+
+**Format:**
+```
+## YYYY-MM-DD — <topic>
+- Hypothesis: <what we expected>
+- Setup: <dataset(s), seeds, reps, backend, git SHA>
+- Result: <KEEP | REJECT | NULL> — <one-line evidence>
+- Verdict: docs/verdicts/YYYY-MM-DD-<topic>-verdict.md (if any)
+```
+
+---
+
+## 2026-06-26 — project bootstrap (design phase)
+- Hypothesis: a unified CPU/GPU, statistically-general, leakage-safe encoder fills a real gap left
+  by sklearn (CPU/mean-only), cuML (GPU/RAPIDS-only), and category_encoders (no cross-fit).
+- Setup: research pass over the three libraries' docs + source; no code run.
+- Result: KEEP (design) — gap confirmed; design recorded in `docs/proposals/`.
+- Verdict: n/a (design, not a measured change).
+
+## 2026-06-26 — M0 bootstrap (CPU mean encoder + count/frequency)
+- Hypothesis: a CPU mean `TargetEncoder` with out-of-fold `fit_transform` plus unsupervised
+  `Count`/`Frequency` encoders can be implemented leakage-safe, sklearn-compatible, and green.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; `scripts/check.sh`; size=small benchmark, 5 reps.
+- Result: KEEP — 46 passed / 1 GPU-skipped; OOF reconstruction exact (`max |Δ|=0.0`); noise-trap
+  OOF corr ≈ -0.006 vs leaky 0.66; coverage 85.87%; baseline written.
+- Verdict: docs/verdicts/2026-06-26-m0-bootstrap-verdict.md
+
+## 2026-06-26 — Phase 2 (dispersion/order stats, combination, GPU scaffold)
+- Hypothesis: var/std/median/min/max can be added as cross-fitted, continuous-only stats; a joint
+  combination mode and a cuDF/CuPy backend fit behind the existing structure without regressing CPU.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; `scripts/check.sh`; size=small benchmark.
+- Result: KEEP — 67 passed / 2 GPU-skipped; coverage 88.17%; new stats cross-fitted & correct vs
+  pandas groupby; combination joint encoding correct; CPU path byte-unchanged after backend
+  threading. GPU path written, **Colab-validation pending** (no local GPU).
+- Verdict: docs/verdicts/2026-06-26-phase2-stats-gpu-verdict.md
+
+<!-- Append new experiments below this line. Never edit or delete prior entries. -->

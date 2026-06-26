@@ -44,11 +44,13 @@ plans.
 - ⏳ **GPU perf**: keep keys/folds on-device to remove the per-fold host↔device round-trips that
   dominate; then re-run the crossover and re-enable `auto` if it wins.
 
-## Phase 3 — advanced — planned
-- `quantile`, `skew`, custom-callable aggregations (CPU-only; order-independence required).
-- Ordered (CatBoost-style) and leave-one-out encoding modes.
-- `set_output("polars")`, advanced metadata routing, estimator-check hardening.
-- PyPI release + API docs; self-improvement-loop hardening.
+## Phase 3 — advanced — in progress (2026-06-26)
+- ✅ `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or dict form;
+  CPU-only, cross-fitted, continuous-only, global fallback). Quantiles/IQR via custom callables;
+  `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
+- ⏳ Ordered (CatBoost-style) and leave-one-out encoding modes.
+- ⏳ `set_output("polars")`, advanced metadata routing, estimator-check hardening.
+- ⏳ PyPI release + API docs; self-improvement-loop hardening.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -61,7 +63,6 @@ plans.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** Phase 2 GPU functional + perf work is parked (KI-020: GPU not yet faster than CPU;
-> `auto` disabled, explicit `gpu` validated). Recommended next is **Phase 3** — start with
-> `quantile`/`skew` (CPU), then custom-callable aggregations. Revisit GPU perf only with an
-> on-device redesign + a new crossover verdict.
+> **Next task:** Phase 3 continues — **CatBoost-style ordered** target statistics and a
+> **leave-one-out** mode (both opt-in, leakage-safe alternatives to k-fold OOF), then
+> `set_output("polars")` and a PyPI release. (Phase 2 GPU perf parked under KI-020.)

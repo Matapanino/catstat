@@ -1,15 +1,18 @@
 """Statistic registry.
 
-Each statistic is described by a :class:`StatSpec`. M0 shipped ``mean`` (supervised, cross-fitted),
-``count`` and ``frequency`` (unsupervised). Phase 2 adds the dispersion/order statistics
-``var``/``std``/``median``/``min``/``max`` -- target-dependent (so cross-fitted), continuous-target
-only, with **no principled smoothing** (the smoothing honesty rule): order stats never blend, and a
-category below ``min_samples_category`` (or where the statistic is undefined) falls back to the
-global statistic. ``quantile``/``skew``/custom callables remain Phase 3.
+M0: ``mean`` (supervised, cross-fitted), ``count``/``frequency`` (unsupervised). Phase 2 added the
+dispersion/order stats ``var``/``std``/``median``/``min``/``max``. Phase 3 adds ``skew`` and
+**custom-callable aggregations** (which subsume quantiles, IQR, etc.).
+
+Non-mean target statistics are cross-fitted, continuous-target only, with **no principled
+smoothing** (the smoothing honesty rule): order/shape stats never blend; a category below
+``min_samples_category`` (or where the statistic is undefined) falls back to the global statistic.
+Custom callables are CPU-only and must be order-independent.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -22,8 +25,9 @@ class StatSpec:
     class_expanded: bool  # multiclass: emit one column per class?
     target_dependent: bool  # uses y -> must be cross-fitted in fit_transform
     name_infix: str  # output column infix, e.g. "te_mean", "count", "freq", "te_std"
-    gpu_supported: bool = True  # cudf groupby supports all of these aggs
+    gpu_supported: bool = True  # cudf groupby supports this agg
     continuous_only: bool = False  # requires a continuous (regression) target
+    func: Callable | None = None  # custom aggregation callable: f(values: ndarray) -> scalar
 
 
 _REGISTRY: dict[str, StatSpec] = {
@@ -35,36 +39,63 @@ _REGISTRY: dict[str, StatSpec] = {
     "median": StatSpec("median", "none", False, True, "te_median", continuous_only=True),
     "min": StatSpec("min", "none", False, True, "te_min", continuous_only=True),
     "max": StatSpec("max", "none", False, True, "te_max", continuous_only=True),
+    # skew uses pandas groupby .skew(); cuDF lacks it, so keep it CPU (gpu_supported=False).
+    "skew": StatSpec(
+        "skew", "none", False, True, "te_skew", gpu_supported=False, continuous_only=True
+    ),
 }
 
-# Designed but not implemented yet (see docs/roadmap.md Phase 3).
-_DEFERRED = {"quantile", "skew"}
+
+def _custom_spec(name: str, fn: Callable) -> StatSpec:
+    # Custom aggregations are CPU-only, cross-fitted, continuous-target, no smoothing.
+    return StatSpec(
+        name=name,
+        smoothing="none",
+        class_expanded=False,
+        target_dependent=True,
+        name_infix=name,
+        gpu_supported=False,
+        continuous_only=True,
+        func=fn,
+    )
 
 
 def resolve_stats(stats) -> list[StatSpec]:
-    """Normalize the ``stats`` argument to a list of :class:`StatSpec`.
+    """Normalize ``stats`` to a list of :class:`StatSpec`.
 
-    Accepts a string or an iterable of strings. (Custom callables are Phase 3.)
+    Accepts: a string; a list whose items are built-in stat names (str) or ``(name, callable)``
+    custom aggregations; or a dict ``{name: callable}`` of custom aggregations.
     """
     if isinstance(stats, str):
-        names = [stats]
+        items = [stats]
+    elif isinstance(stats, dict):
+        items = list(stats.items())
     else:
-        names = list(stats)
-    if not names:
+        items = list(stats)
+    if not items:
         raise ValueError("stats must name at least one statistic.")
 
-    specs = []
-    for n in names:
-        if not isinstance(n, str):
-            raise NotImplementedError(
-                "Custom callable aggregations are planned for Phase 3; pass stat names for now."
-            )
-        if n in _REGISTRY:
-            specs.append(_REGISTRY[n])
-        elif n in _DEFERRED:
-            raise NotImplementedError(
-                f"stat={n!r} is designed but not implemented yet (Phase 3). See docs/roadmap.md."
-            )
+    specs: list[StatSpec] = []
+    for it in items:
+        if isinstance(it, str):
+            if it in _REGISTRY:
+                specs.append(_REGISTRY[it])
+            elif it == "quantile":
+                raise ValueError(
+                    "stat='quantile' needs a quantile level; pass it as a custom aggregation, "
+                    "e.g. stats=[('q90', lambda v: np.quantile(v, 0.9))]."
+                )
+            else:
+                raise ValueError(f"Unknown stat {it!r}. Known: {sorted(_REGISTRY)}.")
+        elif (
+            isinstance(it, tuple)
+            and len(it) == 2
+            and isinstance(it[0], str)
+            and callable(it[1])
+        ):
+            specs.append(_custom_spec(it[0], it[1]))
         else:
-            raise ValueError(f"Unknown stat {n!r}. Known: {sorted(_REGISTRY)}.")
+            raise ValueError(
+                f"Invalid stats entry {it!r}: use a stat name (str) or a (name, callable) pair."
+            )
     return specs

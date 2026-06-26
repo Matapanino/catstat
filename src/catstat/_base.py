@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from ._aggregations import fit_stat_encoding
+from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import make_folds, resolve_cv
 from ._feature_names import build_columns
 from ._smoothing import fit_mean_encoding
@@ -105,8 +105,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._backend_mod, self.backend_ = select_backend(
             self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu
         )
-        # Combination units use tuple keys, which the GPU group-by can't hold -> host only.
-        if self.backend_ == "gpu" and any(len(cols) > 1 for _, cols in self._units):
+        # GPU can't run tuple keys (combination) or CPU-only stats (skew/custom) -> host only.
+        host_only = (not all_gpu) or any(len(cols) > 1 for _, cols in self._units)
+        if self.backend_ == "gpu" and host_only:
             self._backend_mod, self.backend_ = _cpu, _cpu.NAME
 
         self._fit_tables = self._fit_all(Xdf, y_arr)
@@ -165,11 +166,17 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         for c in self.classes_:
                             yc = (y_sel == c).astype(float)
                             tables[(feat, "mean", c)] = fit_mean_encoding(keys, yc, self.smooth, bk)
-                else:  # var/std/median/min/max (continuous-only, target-dependent)
+                else:  # var/std/median/min/max/skew or custom (continuous-only, target-dependent)
                     min_samples = getattr(self, "min_samples_category", 1)
-                    tables[(feat, spec.name, None)] = fit_stat_encoding(
-                        keys, y_arr[sel].astype(float), spec.name, min_samples, self._backend_mod
-                    )
+                    y_sel_f = y_arr[sel].astype(float)
+                    if spec.func is not None:
+                        tables[(feat, spec.name, None)] = fit_custom_encoding(
+                            keys, y_sel_f, spec.func, min_samples
+                        )
+                    else:
+                        tables[(feat, spec.name, None)] = fit_stat_encoding(
+                            keys, y_sel_f, spec.name, min_samples, self._backend_mod
+                        )
         return tables
 
     @staticmethod

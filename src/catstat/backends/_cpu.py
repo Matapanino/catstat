@@ -55,4 +55,12 @@ def category_agg(keys: np.ndarray, y: np.ndarray, stat: str) -> pd.Series:
         return g.min()
     if stat == "max":
         return g.max()
+    if stat == "skew":
+        return g.skew()  # pandas sample (bias-corrected) skew; NaN for n < 3
     raise ValueError(f"Unknown non-mean stat {stat!r}.")
+
+
+def category_agg_custom(keys: np.ndarray, y: np.ndarray, fn) -> pd.Series:
+    """Per-category custom aggregation: ``fn(values: ndarray) -> scalar`` (CPU only)."""
+    df = pd.DataFrame({"k": pd.Series(keys), "y": np.asarray(y, dtype=float)})
+    return df.groupby("k", sort=False)["y"].apply(lambda s: float(fn(s.to_numpy())))

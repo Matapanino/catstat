@@ -27,7 +27,19 @@ def global_stat(y, stat: str) -> float:
         return float(np.min(y))
     if stat == "max":
         return float(np.max(y))
+    if stat == "skew":
+        s = pd.Series(y).skew()  # NaN for n < 3
+        return float(s) if pd.notna(s) else 0.0
     raise ValueError(f"Unknown non-mean stat {stat!r}.")
+
+
+def fit_custom_encoding(keys, y, fn, min_samples: int) -> tuple[pd.Series, float]:
+    """Return ``(encoding_by_category, global_fallback)`` for a custom aggregation (CPU only)."""
+    per_cat = _cpu.category_agg_custom(keys, y, fn)
+    counts = pd.Series(keys).value_counts().reindex(per_cat.index)
+    gv = float(fn(np.asarray(y, dtype=float)))
+    fallback_mask = per_cat.isna() | (counts < max(int(min_samples), 1))
+    return per_cat.where(~fallback_mask, gv).astype(float), gv
 
 
 def fit_stat_encoding(

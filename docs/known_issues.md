@@ -12,7 +12,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 | id | sev | item | notes |
 |----|-----|------|-------|
 | KI-001 | S3 | GPU **validated** (incl. missing-as-value) but not faster yet | CPU/GPU allclose on **T4 2026-06-26** for mean/var × reg/bin/mc + missing. But GPU is *slower* than CPU up to 1M rows → `auto` disabled (KI-020). Explicit `backend="gpu"` works. |
-| KI-002 | S3 | quantile/skew/custom stats absent | P3. (var/std/median/min/max landed in P2.) |
+| KI-002 | — | ~~quantile/skew/custom stats absent~~ | **Resolved 2026-06-26**: skew + custom-callable aggregations (quantiles via custom callables). |
 | KI-003 | — | ~~`multi_feature_mode="combination"` not implemented~~ | **Resolved 2026-06-26** (joint group-by). |
 | KI-004 | S3 | Ordered (CatBoost) / leave-one-out modes absent | P3 options. |
 | KI-005 | S3 | `set_output("polars")` not supported | pandas/numpy/`set_output("pandas")` work; polars in P3. |

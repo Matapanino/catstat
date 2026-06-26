@@ -57,4 +57,12 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   explicit `backend="gpu"` retained.
 - Verdict: docs/verdicts/2026-06-26-gpu-crossover-verdict.md (KI-020).
 
+## 2026-06-26 — Phase 3a (skew + custom-callable aggregations)
+- Hypothesis: skew (built-in) and arbitrary custom aggregations (quantiles, IQR, ...) fit the
+  registry as cross-fitted, continuous-only, CPU stats without disturbing the GPU/CPU paths.
+- Setup: pandas/numpy/sklearn; `scripts/check.sh`.
+- Result: KEEP — 75 passed / 2 GPU-skipped, coverage 89.37%. skew matches pandas groupby; custom
+  q90/IQR correct; custom forces CPU + is cross-fitted; `stats=["quantile"]` gives a helpful hint.
+- Verdict: docs/verdicts/2026-06-26-phase3a-skew-custom-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

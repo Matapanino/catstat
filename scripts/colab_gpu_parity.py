@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""On-VM entrypoint for the catstat CPU/GPU parity run (Colab GPU).
+"""On-VM entrypoint for the catstat CPU/GPU parity + crossover run (Colab GPU).
 
 Invoked by ``scripts/colab_gpu_parity.sh`` via ``colab exec``. Extracts the uploaded working tree,
-installs RAPIDS, then for several cases runs the *same* data + ``random_state`` through
-``backend="cpu"`` and ``backend="gpu"`` and checks that ``transform`` and ``fit_transform`` agree
-to ``allclose`` (not bitwise -- GPU reduction order differs). Writes ``/content/parity.jsonl`` and
-``/content/parity_report.md`` for the driver to download.
+installs RAPIDS, then:
+  1. PARITY -- for several cases (incl. a missing-as-value case) runs the same data + random_state
+     through ``backend="cpu"`` and ``backend="gpu"`` and checks ``transform`` and ``fit_transform``
+     agree to ``allclose`` (not bitwise). Records CPU vs GPU fit_transform time.
+  2. CROSSOVER -- times CPU vs GPU fit_transform of a mean encoder at n = 10k / 100k / 1M to find
+     where the GPU starts to pay off (calibrates the ``backend="auto"`` cell threshold).
 
-There is no local GPU, so this is only ever run on Colab.
+Writes ``/content/parity.jsonl`` and ``/content/parity_report.md``. No local GPU -> Colab only.
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 import subprocess
 import sys
 import time
@@ -29,48 +32,58 @@ def _sh(cmd):
 def setup():
     WORK.mkdir(parents=True, exist_ok=True)
     _sh(["tar", "xzf", "/content/catstat.tar.gz", "-C", str(WORK)])
-    # RAPIDS + CuPy. Colab images often ship cudf; install defensively and pin to CUDA 12 wheels.
     _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
     sys.path.insert(0, str(WORK / "src"))
 
 
-def cases():
+def _med(fn, reps=3):
+    ts = []
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        fn()
+        ts.append(time.perf_counter() - t0)
+    return round(statistics.median(ts), 4)
+
+
+def parity_cases():
     import numpy as np
+    import pandas as pd
 
     rng = np.random.default_rng(0)
     n, k = 200_000, 5_000
     g = rng.integers(0, k, size=n).astype(str)
-    eff = rng.normal(size=k)
-    y_reg = eff[g.astype(int)] + rng.normal(0, 0.5, n)
+    X = pd.DataFrame({"g": g})
+    y_reg = rng.normal(size=n)
     y_bin = (rng.uniform(size=n) < 0.3).astype(int)
     y_mc = rng.integers(0, 4, size=n)
-    import pandas as pd
 
-    X = pd.DataFrame({"g": g})
-    yield "regression_mean", X, y_reg, dict(cols=["g"], stats=["mean"], cv=5, random_state=0)
-    yield "regression_var", X, y_reg, dict(cols=["g"], stats=["var"], cv=5, random_state=0)
-    yield "binary_mean", X, y_bin, dict(cols=["g"], stats=["mean"], cv=5, random_state=0)
-    yield "multiclass_mean", X, y_mc, dict(cols=["g"], stats=["mean"], cv=5, random_state=0)
+    gm = g.astype(object).copy()
+    gm[rng.uniform(size=n) < 0.1] = np.nan  # 10% missing, handled as a category
+    Xm = pd.DataFrame({"g": gm})
+
+    base = dict(cols=["g"], cv=5, random_state=0)
+    yield "regression_mean", X, y_reg, {**base, "stats": ["mean"]}
+    yield "regression_var", X, y_reg, {**base, "stats": ["var"]}
+    yield "binary_mean", X, y_bin, {**base, "stats": ["mean"]}
+    yield "multiclass_mean", X, y_mc, {**base, "stats": ["mean"]}
+    miss_kw = {**base, "stats": ["mean"], "handle_missing": "value"}
+    yield "regression_mean_missing", Xm, y_reg, miss_kw
 
 
-def run():
+def run_parity():
     import numpy as np
 
     from catstat import TargetEncoder
 
     rows = []
-    for name, X, y, kw in cases():
-        rec = {"case": name}
+    for name, X, y, kw in parity_cases():
+        rec = {"kind": "parity", "case": name}
         try:
             cpu = TargetEncoder(**kw, backend="cpu", output="numpy")
             gpu = TargetEncoder(**kw, backend="gpu", output="numpy")
-
             a_t = np.asarray(cpu.fit(X, y).transform(X))
-            t0 = time.perf_counter()
             b_t = np.asarray(gpu.fit(X, y).transform(X))
-            rec["gpu_fit_transform_s"] = round(time.perf_counter() - t0, 4)
-            rec["backend_cpu"] = cpu.backend_
-            rec["backend_gpu"] = gpu.backend_
+            rec["backend_cpu"], rec["backend_gpu"] = cpu.backend_, gpu.backend_
             rec["transform_max_abs_diff"] = float(np.max(np.abs(a_t - b_t)))
             rec["transform_allclose"] = bool(np.allclose(a_t, b_t, rtol=1e-5, atol=1e-8))
 
@@ -84,10 +97,42 @@ def run():
             rec["fit_transform_allclose"] = bool(
                 np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
             )
+            TargetEncoder(**kw, backend="gpu", output="numpy").fit_transform(X, y)  # gpu warmup
+            rec["cpu_ft_s"] = _med(
+                lambda: TargetEncoder(**kw, backend="cpu", output="numpy").fit_transform(X, y), 2
+            )
+            rec["gpu_ft_s"] = _med(
+                lambda: TargetEncoder(**kw, backend="gpu", output="numpy").fit_transform(X, y), 2
+            )
             ok = rec["transform_allclose"] and rec["fit_transform_allclose"]
             rec["status"] = "ok" if ok else "MISMATCH"
         except Exception as exc:
-            rec["status"] = "ERROR"
+            rec["status"], rec["error"] = "ERROR", repr(exc)
+        print(rec, flush=True)
+        rows.append(rec)
+    return rows
+
+
+def run_crossover():
+    import numpy as np
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(1)
+    rows = []
+    for n in (10_000, 100_000, 1_000_000):
+        k = max(2, n // 40)
+        X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
+        y = rng.normal(size=n)
+        kw = dict(cols=["g"], stats=["mean"], cv=5, random_state=0, output="numpy")
+        rec = {"kind": "crossover", "n": n, "cardinality": k}
+        try:
+            cpu_s = _med(lambda: TargetEncoder(**kw, backend="cpu").fit_transform(X, y), 3)
+            TargetEncoder(**kw, backend="gpu").fit_transform(X, y)  # warmup
+            gpu_s = _med(lambda: TargetEncoder(**kw, backend="gpu").fit_transform(X, y), 3)
+            rec.update(cpu_ft_s=cpu_s, gpu_ft_s=gpu_s, speedup=round(cpu_s / gpu_s, 2))
+        except Exception as exc:
             rec["error"] = repr(exc)
         print(rec, flush=True)
         rows.append(rec)
@@ -101,19 +146,32 @@ def write(rows):
         for r in rows:
             fh.write(json.dumps(r) + "\n")
 
+    par = [r for r in rows if r["kind"] == "parity"]
+    cross = [r for r in rows if r["kind"] == "crossover"]
     lines = [
-        "# catstat CPU/GPU parity (Colab)",
+        "# catstat CPU/GPU parity + crossover (Colab)",
         f"- python: {platform.python_version()}",
         "",
-        "| case | t_allclose | t_maxabs | ft_allclose | ft_maxabs | gpu_ft_s | status |",
-        "|------|-----------|----------|-------------|-----------|----------|--------|",
+        "## Parity (n=200k, 5k categories)",
+        "| case | t_allclose | t_maxabs | ft_allclose | ft_maxabs | cpu_ft_s | gpu_ft_s | status |",
+        "|------|-----------|----------|-------------|-----------|----------|----------|--------|",
     ]
-    for r in rows:
+    for r in par:
         lines.append(
-            f"| {r['case']} | {r.get('transform_allclose')} | "
-            f"{r.get('transform_max_abs_diff')} | {r.get('fit_transform_allclose')} | "
-            f"{r.get('fit_transform_max_abs_diff')} | {r.get('gpu_fit_transform_s')} | "
-            f"{r.get('status')} |"
+            f"| {r['case']} | {r.get('transform_allclose')} | {r.get('transform_max_abs_diff')} "
+            f"| {r.get('fit_transform_allclose')} | {r.get('fit_transform_max_abs_diff')} "
+            f"| {r.get('cpu_ft_s')} | {r.get('gpu_ft_s')} | {r.get('status')} |"
+        )
+    lines += [
+        "",
+        "## Crossover (mean encoder; fit_transform median seconds)",
+        "| n | cardinality | cpu_ft_s | gpu_ft_s | speedup (cpu/gpu) |",
+        "|---|-------------|----------|----------|-------------------|",
+    ]
+    for r in cross:
+        lines.append(
+            f"| {r['n']} | {r['cardinality']} | {r.get('cpu_ft_s')} | "
+            f"{r.get('gpu_ft_s')} | {r.get('speedup')} |"
         )
     Path("/content/parity_report.md").write_text("\n".join(lines) + "\n")
     print("wrote /content/parity.jsonl and /content/parity_report.md", flush=True)
@@ -121,4 +179,4 @@ def write(rows):
 
 if __name__ == "__main__":
     setup()
-    write(run())
+    write(run_parity() + run_crossover())

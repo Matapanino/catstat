@@ -42,7 +42,8 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   missing-as-value** (cuDF nulls), transform + fit_transform. Two verdicts (parity + crossover).
 - ✅ **Crossover measured**: GPU is *slower* than CPU up to 1M rows (speedup 0.28–0.86) →
   `backend="auto"` GPU **disabled** (`_AUTO_GPU_ENABLED=False`); explicit `backend="gpu"` stays. KI-020.
-- ⏳ `combination` on GPU (tuple keys, host-only) + vectorize joint-key build (KI-018/019).
+- ⏳ `combination` on GPU (tuple keys, host-only; KI-018). ✅ joint-key build **vectorized**
+  (KI-019, 2026-06-26: C-level zip, output-identical, ~1.37–1.55× faster combination 10k–1M).
 - ⏳ **GPU perf**: keep keys/folds on-device to remove the per-fold host↔device round-trips that
   dominate; then re-run the crossover and re-enable `auto` if it wins.
 

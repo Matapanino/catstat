@@ -17,7 +17,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 | KI-004 | S3 | Ordered (CatBoost) / leave-one-out modes absent | P3 options. |
 | KI-005 | S3 | `set_output("polars")` not supported | pandas/numpy/`set_output("pandas")` work; polars in P3. |
 | KI-018 | S3 | GPU `combination` (tuple keys) forced to CPU | missing-as-value now works on GPU (validated 2026-06-26); only combination remains host-only. |
-| KI-019 | S3 | combination joint-key build is a Python loop | O(n) host loop; vectorize for large N. |
+| KI-019 | — | ~~combination joint-key build is a Python loop~~ | **Resolved 2026-06-26**: C-level `zip` build replaces the per-row genexpr; output byte-identical (max\|Δ\|=0 at 10k–1M), combination `fit_transform` ~1.37–1.55× faster. `docs/verdicts/2026-06-26-pr-a-vectorize-jointkey-verdict.md`. |
 | KI-020 | S2 | GPU not faster than CPU up to 1M rows (T4) | host↔device round-trip per OOF fold dominates. `auto` disabled; perf needs on-device keys/folds. `docs/verdicts/2026-06-26-gpu-crossover-verdict.md`. |
 | KI-030 | S3 | Numeric TE (0.2.0): `Count`/`Frequency` don't bin; numpy-object & bool route to categorical | `numeric=` is `TargetEncoder`-only. Numeric auto-detection needs real numeric dtypes, so numpy-array input (all-object after `prepare_X`) and bool columns are treated as categorical/direct, not binned. Edges are computed once from full-train X (leakage-safe, ⊥ y). **GPU:** numeric keys are emitted as **strings** — the first Colab T4 run hit `MixedTypeError` (cuDF rejects object-dtype *integer* arrays) with int bin-ids/values; fixed by stringifying keys (matches the validated string-categorical path). CPU/GPU allclose **validated on T4 (2026-06-26)** for `numeric_auto`/`numeric_bin` (max\|Δ\| ~1e-17). |
 

@@ -40,7 +40,7 @@ custom) re-factorizes per stat.
 
 | # | lever | where it fires | expected payoff | risk | sklearn? | cuML? |
 |---|-------|----------------|-----------------|------|----------|-------|
-| 1 | **factorize-once + numpy GATHER** (store encodings as `float64[code]`; transform = `enc[codes]`) | transform (and fit lookups) | **10–50×** on the transform step (kills the 52% `get_indexer`) | Low–Med | yes | no |
+| 1 ✅ | **factorize-once + numpy GATHER** (store encodings as `float64[code]`; transform = `enc[codes]`) — **shipped 2026-06-27** | transform (and fit lookups) | **measured ×2.3–3.4** (multi-stat / high-card; one `get_indexer` per *unit*, not per column; single-stat neutral) | Low–Med | yes | no |
 | 2 | **bincount over integer (joint) codes** for the remaining slow-path stats; `joint = code_a*n_b+code_b` | fit accumulation; **joint keys** | 5–30× at large N; integer joint codes also unblock **GPU combination (KI-018)** | Med | yes (scatter-add) | no |
 | 3 | **pre-allocated output, no merge at apply-back** | transform/apply | 5–15× | Low | yes | no |
 | 4 | **dtype discipline** — int32 codes, C-contiguous, float64 throughout | both, large N | 5–20% | Very low | yes | partial |
@@ -63,3 +63,17 @@ What to measure (in-process before/after, the attributable method): the **transf
 n ≥ 1M, single- and multi-column, var the cardinality; expect 10–50× on that step. Watch the small-N
 break-even (pandas has low overhead; bincount/gather wins grow with N). Tracked as **KI-031**; this
 is the next CPU arc after PR-C, ahead of the GPU on-device port (KI-020).
+
+## Status — lever #1 shipped (2026-06-27)
+
+Lever #1 landed on `feat/perf-integer-code-gather` (stacked on `feat/perf-additive-var-std`):
+`_transform_array` factorizes each unit's keys once (`index.get_indexer`) and gathers each column from
+a `float64` array aligned to a per-unit canonical index (`_UnitEncoding`), replacing per-column
+`pd.Series.map`. Measured (in-process interleaved, n=1M, 7 reps): transform **×2.28** (4-stat),
+**×3.36** (4-stat high-card 50k), **×2.48** (combination), **×1.00** single-stat (no-unknown fast path
+= a single fancy index). The 10–50× estimate above assumed `get_indexer` could be eliminated entirely;
+in practice the gather still pays **one** `get_indexer` per unit to locate *arbitrary* transform keys,
+so the real win is "a unit's N stats share one hash" (≈2–3× at 4 stats) plus dropping the pandas
+`Series.map` overhead. Outputs allclose; leakage + sklearn-compat PASS;
+`docs/verdicts/2026-06-27-transform-gather-verdict.md`. **Lever #2 (integer joint codes → vectorized
+combination key-build, KI-019 + GPU combination KI-018) is the next, separate PR.**

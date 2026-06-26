@@ -216,3 +216,24 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   mean/var/std share one factorize + one composite bincount.
 - Verdict: docs/verdicts/2026-06-27-pr-c-additive-var-std-verdict.md. Research note (next lever):
   docs/notes/2026-06-27-cuml-vs-sklearn-te-levers.md.
+
+## 2026-06-27 — integer-code gather on the transform path (KI-031)
+- Hypothesis: `_transform_array` re-hashed each unit's keys once per (stat,class) column via
+  `pd.Series.map`; since a unit's stats share one category *set* (only order differs), factorizing
+  the keys once (`index.get_indexer`) and gathering each column from a contiguous float64 array
+  aligned to a canonical index cuts transform to one hash per unit + a fancy index per column, with
+  bit-identical outputs (unknown code −1 → NaN reproduces `.map`; values bake the §11 global so there
+  is no other NaN). Speeds up `transform`, the `fit_transform` refit, and the per-fold slow OOF path.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; in-process **interleaved** old(`.map`)/new(gather)
+  on the same fitted tables, 7 reps, n=1M, single- & multi-col, `stats={mean,var,std,median}`;
+  `tests/test_transform_gather.py` (mixed-order multi-stat alignment, combination unknown/known joint
+  key, tiny-n baked-global vs unseen-under-`handle_unknown`); independent noise-trap leakage audit;
+  `/leakage-audit` + `/sklearn-compat`.
+- Result: KEEP — transform ×2.28 (4-stat), ×3.36 (4-stat high-card 50k), ×2.48 (combination), ×1.00
+  single-stat (no-unknown fast path = a single fancy index); outputs allclose(equal_nan); 170 passed,
+  8 skipped; ruff clean. Leakage PASS (OOF corr −0.013 mean / −0.012 median; leaky +0.65; asymmetric).
+  sklearn PASS incl. pickle round-trip of the new `_UnitEncoding`. `categories_` / `global_stats_` /
+  `target_mean_` unchanged (canonical = first column's index). No default changed; committed baseline
+  NOT updated (it predates the perf arc).
+- Verdict: docs/verdicts/2026-06-27-transform-gather-verdict.md. Next lever: integer **joint** codes
+  (`c_a*n_b+c_b`) → vectorize combination key-build (KI-019) + unblock GPU `combination` (KI-018).

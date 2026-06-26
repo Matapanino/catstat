@@ -109,19 +109,21 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   same kernel (shared complement moments; ddof=1 + complement-global fallback) with a **hybrid** gate
   that keeps median/min/max/skew/custom on the slow loop — 2.7–2.8× on var & mean+var+std, ~1.5× mixed
   (`docs/verdicts/2026-06-27-pr-c-additive-var-std-verdict.md`). The kernel also ports on-device to
-  remove per-fold host↔device round-trips (KI-020). **Next CPU lever:** integer-code factorize-once +
-  array gather on the transform path (`docs/notes/2026-06-27-cuml-vs-sklearn-te-levers.md`, KI-031).
+  remove per-fold host↔device round-trips (KI-020). ✅ **Transform gather** (2026-06-27): factorize-once
+  `index.get_indexer` + numpy gather replaced per-column `pd.Series.map` — transform ×2.3–3.4
+  (multi-stat / high-card), single-stat neutral (`docs/verdicts/2026-06-27-transform-gather-verdict.md`,
+  KI-031). **Next CPU lever:** integer **joint** codes to vectorize the combination key-build (KI-019)
+  and unblock GPU `combination` (KI-018).
 - **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
   GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** **PR-C done (2026-06-27)** — var/std on the single-pass kernel + hybrid gate
-> (2.7–2.8× var & mean+var+std, ~1.5× mixed; leakage-audited; branch `feat/perf-additive-var-std`).
-> **Next, in order:** (1) **interactions** `interactions: list[list[str]]` → one joint TE column per
-> group (mostly `_units` plumbing — the additive kernel already handles multi-col units);
-> (2) **integer-code gather** — factorize-once + numpy gather on the transform path (~52%
-> `get_indexer`), which also unblocks GPU `combination` (KI-018 / KI-031); (3) **PR-D** GPU on-device
-> kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Maintainer-only carryover:
-> tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for `Count`/`Frequency`
-> (KI-030).
+> **Next task:** **Transform gather done (2026-06-27)** — factorize-once `index.get_indexer` + numpy
+> gather replaced per-column `pd.Series.map`; transform ×2.3–3.4 (multi-stat / high-card), single-stat
+> neutral; leakage-audited; branch `feat/perf-integer-code-gather` (stacked on `feat/perf-additive-var-std`).
+> **Next, in order:** (1) **integer joint codes** (`c_a*n_b+c_b`) — vectorize the combination key-build
+> (still a Python loop, KI-019) and unblock GPU `combination` (KI-018); (2) **PR-D** GPU on-device
+> kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Also pending on a separate
+> branch: **interactions** `interactions: list[list[str]]`. Maintainer-only carryover: tag `v0.2.0`
+> to publish; enable GitHub Pages; optional numeric binning for `Count`/`Frequency` (KI-030).

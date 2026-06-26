@@ -1,11 +1,10 @@
 # `catstat` Roadmap
 
-This roadmap is **honest about status**. As of **2026-06-26** the library is **release-ready at
-0.1.0**: M0 + Phase 2 (GPU validated; auto-GPU disabled pending perf) + Phase 3 (skew/custom stats,
-loo/ordered schemes, polars output) are implemented and green on `scripts/check.sh`; the package
-builds and `twine check` passes. A release-polish arc → **0.1.1** is underway (release automation
-done; README, API docs, sklearn-compat hardening, hygiene next); the PyPI upload + one-time
-Trusted-Publisher setup remain the maintainer's.
+This roadmap is **honest about status**. As of **2026-06-26** **0.1.1 is released on PyPI**: M0 +
+Phase 2 (GPU validated; auto-GPU disabled pending perf) + Phase 3 (skew/custom stats, loo/ordered
+schemes, polars output), CI green on Python 3.10–3.12 / pandas 1.5–3.0. **0.2.0 adds opt-in,
+cardinality-aware numeric-column target encoding** (implemented + green on `scripts/check.sh`,
+verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven (Trusted Publishing).
 
 > `MVP / Phase 2 / Phase 3` are **capability tiers**, not package versions.
 
@@ -81,6 +80,23 @@ Trusted-Publisher setup remain the maintainer's.
 - ⏳ **Maintainer-only:** enable GitHub Pages (Settings → Pages → GitHub Actions) so the Docs
   workflow deploys the API site. (KI-020 GPU perf is the optional larger follow-up.)
 
+## 0.2.0 — numeric-column target encoding — done ✅ (2026-06-26)
+- ✅ **Opt-in numeric TE** on `TargetEncoder` (`numeric="ignore"|"auto"|"direct"|"bin"` +
+  `cardinality_threshold`/`n_bins`/`binning`). Low-cardinality numerics → direct (each value a
+  category); high-cardinality → quantile-binned then target-encoded; `"auto"` routes by cardinality.
+  Default `"ignore"` keeps existing behavior. `src/catstat/_numeric.py` (host-side numpy) + one seam
+  at `_unit_keys`; all smoothing / fallback / feature-name / parity logic reused unchanged.
+- ✅ **Leakage-safe**: bin edges from X only (proven ⊥ y), computed once from full train; per-bin
+  encoding cross-fitted OOF. Binned OOF reconstruction exact; noise-trap OOF corr ≈ 0.07. 27 tests,
+  `_numeric.py` 100% covered.
+- ✅ **Empirically validated**: downstream Ridge 5-fold CV R² **0.034 (raw) → 0.91 (auto, n_bins=10)**;
+  defaults `n_bins=10` / `cardinality_threshold=10` set by verdict. `benchmarks/eval_numeric.py`,
+  `docs/verdicts/2026-06-26-numeric-te-verdict.md`, `docs/notes/2026-06-26-numeric-te-prior-art.md`.
+- ✅ GPU parity for binned/direct numeric **validated on T4 (2026-06-26)**: `numeric_auto`/`numeric_bin`
+  CPU/GPU allclose (max|Δ| ~1e-17). First run hit `MixedTypeError` (cuDF rejects object-dtype int keys)
+  → fixed by emitting **string** keys.
+- ⏳ Numeric binning for `Count`/`Frequency` (KI-030).
+
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
   unknown/missing + names → count/frequency → sklearn compat → harness) landed together in the
@@ -92,13 +108,11 @@ Trusted-Publisher setup remain the maintainer's.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
-> Publishing) + opened 0.1.1. ✅ Commit 2: README polish. ✅ Commit 3: API docs (pdoc +
-> GitHub Pages). ✅ sklearn tags + sklearn-compat hardening (documented `check_estimator` subset,
-> KI-012; estimator pickling fixed). ✅ Fixed two pre-existing blockers: CI green (pytest
-> `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022) — **CI is now green**.
-> **0.1.1 is released** (2026-06-26): tagged `v0.1.1` → auto-published to PyPI via Trusted
-> Publishing (`pip install catstat==0.1.1` verified) + a GitHub release. CI green; the polish arc is
-> complete. **Remaining = maintainer-only:** enable GitHub Pages (Settings → Pages → GitHub Actions)
-> so the Docs workflow deploys the API site. Optional larger follow-up: KI-020 GPU on-device perf —
-> needs a fresh Colab crossover verdict before re-enabling `auto`.
+> **Next task:** **0.2.0 — opt-in numeric-column target encoding is implemented & green** (branch
+> `feat/numeric-target-encoding`): direct / quantile-binned / auto-routed numeric TE, leakage-audited
+> (edges ⊥ y; binned OOF exact), sklearn-compat, empirically validated (CV R² 0.034 → 0.91), defaults
+> set by verdict, version bumped to **0.2.0** + CHANGELOG. **Remaining:** (1) maintainer tags
+> `v0.2.0` to publish via Trusted Publishing; (2) maintainer runs `scripts/colab_gpu_parity.sh` to
+> confirm CPU/GPU allclose on the new binned/direct cases (host-side numpy → expected); (3) optional:
+> numeric binning for `Count`/`Frequency` (KI-030). Still maintainer-only from 0.1.1: enable GitHub
+> Pages. Optional larger follow-up: KI-020 GPU on-device perf (needs a fresh Colab crossover verdict).

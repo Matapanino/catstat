@@ -16,8 +16,10 @@ from sklearn.utils.validation import check_is_fitted
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import loo_encode, make_folds, ordered_encode, resolve_cv
 from ._feature_names import build_columns
+from ._numeric import apply_numeric_col, fit_numeric_plan
 from ._smoothing import fit_mean_encoding
 from ._validation import (
+    _is_numeric_like,
     check_handle,
     infer_target_type,
     normalize_keys,
@@ -77,12 +79,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             raise NotImplementedError(f"output={self.output!r} is not supported in M0 (CPU).")
         if self.output not in _VALID_OUTPUT:
             raise ValueError(f"output={self.output!r} must be one of {_VALID_OUTPUT}.")
+        numeric_mode = self._validate_numeric_params()
 
         Xdf, was_df, all_cols = prepare_X(X)
         self.n_features_in_ = Xdf.shape[1]
         if was_df:
             self.feature_names_in_ = np.asarray(all_cols, dtype=object)
-        self._cat_cols = select_cols(Xdf, self.cols)
+        self._cat_cols = select_cols(Xdf, self.cols, numeric_mode)
         # Encoding units: independent -> one per column; combination -> one joint unit.
         if mode == "combination" and len(self._cat_cols) > 1:
             joint = "+".join(str(c) for c in self._cat_cols)
@@ -90,6 +93,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         else:
             self._units = [(c, [c]) for c in self._cat_cols]
         self._unit_cols = dict(self._units)
+        self._fit_numeric(Xdf, numeric_mode)
         self._specs = self._resolve_stat_specs()
         self.stats_ = [s.name for s in self._specs]
 
@@ -165,6 +169,70 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         else:
             self.target_mean_ = float(self._fit_tables[(f0, "mean", None)][1])
 
+    # ---- numeric-column encoding (opt-in, cardinality-aware) ---------------------------------
+    def _validate_numeric_params(self) -> str:
+        """Validate the opt-in numeric-encoding params; return the resolved numeric mode.
+
+        These params live on ``TargetEncoder`` only; unsupervised encoders never define ``numeric``,
+        so ``getattr`` yields ``"ignore"`` and the whole block is a no-op for them.
+        """
+        mode = getattr(self, "numeric", "ignore")
+        if mode not in ("ignore", "auto", "direct", "bin"):
+            raise ValueError(f"numeric={mode!r} must be one of 'ignore', 'auto', 'direct', 'bin'.")
+        if mode == "ignore":
+            return mode
+        binning = getattr(self, "binning", "quantile")
+        if binning not in ("quantile", "uniform"):
+            raise ValueError(f"binning={binning!r} must be 'quantile' or 'uniform'.")
+        n_bins = getattr(self, "n_bins", 20)
+        if isinstance(n_bins, bool) or not isinstance(n_bins, (int, np.integer)) or n_bins < 2:
+            raise ValueError(f"n_bins={n_bins!r} must be an integer >= 2.")
+        ct = getattr(self, "cardinality_threshold", 20)
+        ok_int = isinstance(ct, (int, np.integer)) and not isinstance(ct, bool) and ct >= 1
+        ok_float = isinstance(ct, float) and 0.0 < ct <= 1.0
+        if not (ok_int or ok_float):
+            raise ValueError(
+                f"cardinality_threshold={ct!r} must be an int >= 1 (absolute unique count) "
+                "or a float in (0, 1] (unique/n ratio)."
+            )
+        return mode
+
+    def _fit_numeric(self, Xdf, numeric_mode: str) -> None:
+        """Build the per-column numeric encoding plan + introspection attrs (from full training X).
+
+        Bin edges are a function of feature values only (never ``y``), so the plan is leakage-safe;
+        the per-bin target statistic is still cross-fitted out-of-fold by ``fit_transform``. The
+        plan maps each numeric-encoded column to its strategy and (for ``"bin"``) its edges, and is
+        consulted by :meth:`_col_values` at every cross-fit scheme's key-building step.
+        """
+        plan: dict = {}
+        if numeric_mode != "ignore":
+            num_cols = [c for c in self._cat_cols if _is_numeric_like(Xdf[c].dtype)]
+            plan = fit_numeric_plan(
+                Xdf,
+                num_cols,
+                numeric_mode,
+                self.cardinality_threshold,
+                self.n_bins,
+                self.binning,
+            )
+        self._numeric_plan_ = plan
+        self.numeric_cols_ = list(plan)
+        self.numeric_strategy_ = {c: e["strategy"] for c, e in plan.items()}
+        self.bin_edges_ = {c: e["edges"] for c, e in plan.items() if e["strategy"] == "bin"}
+
+    def _col_values(self, Xdf, c):
+        """Raw values for column ``c``, numeric-encoded (binned / direct) when the plan covers it.
+
+        Columns not in the numeric plan -- categoricals, or any column when numeric encoding is off
+        -- pass through unchanged, so existing behavior is preserved exactly.
+        """
+        vals = Xdf[c].to_numpy()
+        plan = getattr(self, "_numeric_plan_", None)
+        if plan and c in plan:
+            return apply_numeric_col(vals, plan[c])
+        return vals
+
     # ---- per-statistic fitting ---------------------------------------------------------------
     def _fit_all(self, Xdf, y_arr):
         """Return the full encoding tables: ``{(feature, stat, class): (Series, fallback)}``."""
@@ -226,11 +294,11 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         component is missing.
         """
         if len(cols) == 1:
-            return normalize_keys(Xdf[cols[0]].to_numpy())
+            return normalize_keys(self._col_values(Xdf, cols[0]))
         comp_keys = []
         missing = np.zeros(Xdf.shape[0], dtype=bool)
         for c in cols:
-            k, m = normalize_keys(Xdf[c].to_numpy())
+            k, m = normalize_keys(self._col_values(Xdf, c))
             comp_keys.append(k)
             missing = missing | m
         joint = np.empty(Xdf.shape[0], dtype=object)

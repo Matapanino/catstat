@@ -69,6 +69,14 @@ def parity_cases():
     miss_kw = {**base, "stats": ["mean"], "handle_missing": "value"}
     yield "regression_mean_missing", Xm, y_reg, miss_kw
 
+    # numeric-column TE (0.2.0): bin edges are host-side numpy, so bin ids match on both backends.
+    lc = rng.integers(0, 8, size=n)  # low cardinality -> direct under "auto"
+    hc = rng.normal(size=n)  # high cardinality continuous -> bin
+    Xn = pd.DataFrame({"lc": lc, "hc": hc})
+    num_base = dict(cols=["lc", "hc"], stats=["mean"], cv=5, random_state=0, n_bins=20)
+    yield "numeric_auto", Xn, y_reg, {**num_base, "numeric": "auto"}  # direct(lc)+bin(hc)
+    yield "numeric_bin", Xn, y_reg, {**num_base, "numeric": "bin"}
+
 
 def run_parity():
     import numpy as np

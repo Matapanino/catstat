@@ -25,7 +25,7 @@ from ._validation import (
     select_cols,
 )
 from .backends import _cpu
-from .backends._dispatch import select_backend
+from .backends._dispatch import backend_module, select_backend
 
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
@@ -283,6 +283,19 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             col[mask] = fallback
         # "return_nan": leave the NaN in place
         return col
+
+    # ---- pickle support ----------------------------------------------------------------------
+    # A fitted estimator caches its backend *module* in `_backend_mod`; modules aren't picklable,
+    # so drop it on pickle and re-resolve it from the recorded backend name (`backend_`) on load.
+    def __getstate__(self):
+        state = dict(super().__getstate__())
+        state.pop("_backend_mod", None)
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        if "backend_" in state:
+            self._backend_mod = backend_module(state["backend_"])
 
     def transform(self, X):
         check_is_fitted(self, "_fit_tables")

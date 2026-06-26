@@ -25,7 +25,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 |----|-----|------|-----------|
 | KI-010 | S1 | `smooth="auto"` exact formula unverified | local sklearn is 1.2 (no `TargetEncoder`); verify against `_target_encoder_fast.pyx` before claiming sklearn parity. |
 | KI-011 | S1 | Leakage via implementation detail | OOF reconstruction test + `leakage-audit` skill gate every cross-fit/smoothing change. |
-| KI-012 | S2 | sklearn `check_estimator` not fully passable | supervised multi-output transformer; target a documented subset. |
+| KI-012 | S3 | sklearn `check_estimator` — documented subset | **2026-06-26**: applicable checks pass (`tests/test_check_estimator.py`, sklearn ≥ 1.6); inapplicable ones waived with reasons (sparse, 1d/empty/complex input, by-name `n_features`, y-messages). Estimator pickling fixed. |
 | KI-013 | S2 | cuDF weak on object/high-cardinality strings | `auto` avoids GPU for those; document. |
 | KI-014 | S2 | pandas↔cuDF NaN/dtype semantics differ | parity at allclose; normalize dtypes in `_validation`. |
 | KI-015 | S3 | Custom aggregations must be order-independent | warn otherwise; CPU-only; no smoothing. |

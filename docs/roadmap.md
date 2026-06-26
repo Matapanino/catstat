@@ -72,8 +72,11 @@ Trusted-Publisher setup remain the maintainer's.
   `tests.conftest` (KI-021). CI had been red since before this arc (a collection error, not pandas).
 - ✅ **pandas 3.0 (0.1.1)**: `cols="auto"` now selects pandas `StringDtype` columns (KI-022). Full
   suite green on sklearn 1.9 / pandas 3.0.3 in a venv; CI should now pass end-to-end.
-- ⏳ check_estimator subset test (KI-012), project hygiene; then the maintainer's one-time PyPI
-  Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
+- ✅ **sklearn-compat hardening (0.1.1)**: documented `check_estimator` subset
+  (`tests/test_check_estimator.py`, sklearn ≥ 1.6) — applicable checks pass, inapplicable ones waived
+  with reasons (KI-012); fixed estimator pickling (cached backend module → `__getstate__`/`__setstate__`).
+- ⏳ Project hygiene (CONTRIBUTING, SECURITY, issue/PR templates); then the maintainer's one-time
+  PyPI Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -88,8 +91,9 @@ Trusted-Publisher setup remain the maintainer's.
 ## "Next" pointer (update each session)
 > **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
 > Publishing) + opened 0.1.1. ✅ Commit 2: README polish. ✅ Commit 3: API docs (pdoc +
-> GitHub Pages). ✅ sklearn tags. ✅ Fixed two pre-existing blockers: CI green (pytest
-> `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022). **Next:** the documented
-> check_estimator subset test (KI-012), then project-hygiene files (CONTRIBUTING, SECURITY, issue/PR
-> templates). Maintainer: PyPI Trusted-Publisher + Pages enablement + `v0.1.1` tag. v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
-> maintainer's; the GPU on-device perf redesign (KI-020) is the larger optional follow-up.
+> GitHub Pages). ✅ sklearn tags + sklearn-compat hardening (documented `check_estimator` subset,
+> KI-012; estimator pickling fixed). ✅ Fixed two pre-existing blockers: CI green (pytest
+> `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022) — **CI is now green**.
+> **Next:** project-hygiene files (CONTRIBUTING, SECURITY, issue/PR templates). Maintainer: PyPI
+> Trusted-Publisher + Pages enablement + `v0.1.1` tag; v0.1.0's PyPI upload remains the maintainer's;
+> the GPU on-device perf redesign (KI-020) is the larger optional follow-up.

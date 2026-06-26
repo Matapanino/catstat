@@ -1,3 +1,5 @@
+import pickle
+
 import pandas as pd
 import pytest
 import sklearn
@@ -94,3 +96,11 @@ def test_sklearn_tags_categorical_and_requires_y():
     c = CountEncoder(cols=["g"]).__sklearn_tags__()
     assert c.target_tags.required is False
     assert c.input_tags.allow_nan is True
+
+
+def test_fitted_estimator_is_picklable():
+    # A fitted estimator caches its backend module; __getstate__/__setstate__ must round-trip it.
+    X, y = make_regression()
+    enc = TargetEncoder(cols=["g"]).fit(X, y)
+    restored = pickle.loads(pickle.dumps(enc))
+    pd.testing.assert_frame_equal(enc.transform(X), restored.transform(X))

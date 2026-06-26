@@ -40,3 +40,15 @@ def select_backend(backend: str, n_rows: int, n_cols: int, all_gpu_stats: bool):
     ):
         return _gpu, _gpu.NAME
     return _cpu, _cpu.NAME
+
+
+def backend_module(name: str):
+    """Resolve a backend NAME (as recorded in ``backend_``) back to its module.
+
+    Used to restore the (unpicklable) module cached on a fitted estimator after unpickling.
+    """
+    if name == _cpu.NAME:
+        return _cpu
+    if name == _gpu.NAME:
+        return _gpu
+    raise ValueError(f"Unknown backend name {name!r}.")

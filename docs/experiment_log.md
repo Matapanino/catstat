@@ -152,4 +152,17 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   now pass. No cross-fit/smoothing change.
 - Verdict: docs/verdicts/2026-06-26-pandas3-string-dtype-verdict.md
 
+## 2026-06-26 — sklearn check_estimator documented subset + estimator pickling (KI-012)
+- Hypothesis: a documented `check_estimator` subset can be enforced for the categorical encoders,
+  and the unpicklable cached backend module can be fixed, without changing established behavior.
+- Setup: discovered the failing checks on sklearn 1.9 (venv); wrote `tests/test_check_estimator.py`
+  with per-encoder `expected_failed_checks` + reasons (skipped on sklearn<1.6). Fixed pickling via
+  `__getstate__`/`__setstate__` + `_dispatch.backend_module`; added a pickle round-trip unit test.
+- Result: KEEP — ~36 checks pass per encoder; the rest waived with reasons (sparse, 1d/empty/complex
+  input, by-name n_features, y-messages). A transform n_features guard was tried but REVERTED — it
+  broke unseen-category tests (transform selects columns by name and tolerates a differing width by
+  design), so that check is waived rather than "fixed". Pickling fixed (round-trip transform equal).
+  Local green (subset skips on 1.2); venv full suite 93 passed / 3 skipped. KI-012 downgraded S2→S3.
+- Verdict: docs/verdicts/2026-06-26-check-estimator-subset-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

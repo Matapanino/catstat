@@ -85,6 +85,16 @@ def test_bin_assigns_same_value_within_a_bin():
         assert np.allclose(vals, vals[0])
 
 
+def test_numeric_keys_are_gpu_safe_strings():
+    # cuDF rejects object-dtype integer arrays, so numeric-encoded keys must be strings for CPU/GPU
+    # parity (the string path is the validated one). Guards the MixedTypeError regression.
+    X, y = make_numeric()
+    enc = TargetEncoder(numeric="auto", n_bins=8, random_state=0).fit(X, y)
+    assert set(enc.numeric_cols_) == {"lc", "hc"}  # lc -> direct, hc -> bin
+    for col in enc.numeric_cols_:
+        assert all(isinstance(c, str) for c in enc.categories_[col])
+
+
 # ---- leakage safety --------------------------------------------------------------------------
 def test_bin_edges_are_independent_of_y():
     """Edges come from X only: permuting or replacing y must not change them."""

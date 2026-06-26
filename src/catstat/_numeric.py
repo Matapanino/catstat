@@ -83,22 +83,27 @@ def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binni
 def apply_numeric_col(values, entry: dict) -> np.ndarray:
     """Map one numeric column's raw values to category keys per its plan ``entry``.
 
-    ``"direct"`` is the identity (raw values become category keys downstream). ``"bin"`` returns an
-    object array of integer bin ids with non-finite entries (NaN / +/-inf) left as ``np.nan`` so
-    the existing ``normalize_keys`` routes them to the MISSING level (``handle_missing``). Values
-    outside the training range map to the outer bins (``np.digitize`` on interior edges already
-    clamps to the ends; ``np.clip`` is a defensive guard).
+    Keys are emitted as **strings**, with non-finite entries (NaN / +/-inf) left as ``np.nan`` so
+    the existing ``normalize_keys`` routes them to the MISSING level (``handle_missing``). Strings
+    are required for CPU/GPU parity: cuDF rejects object-dtype *integer* arrays, whereas the
+    string-keyed path is the one already validated CPU/GPU-allclose. ``"direct"`` stringifies the
+    raw value (each value a category); ``"bin"`` stringifies the bin id. Values outside the training
+    range map to the outer bins (``np.digitize`` on interior edges already clamps to the ends;
+    ``np.clip`` is a defensive guard).
     """
+    s = pd.Series(values)
+    out = np.empty(len(s), dtype=object)
+    out[:] = np.nan
     if entry["strategy"] == "direct":
-        return values
+        notna = s.notna().to_numpy()
+        out[notna] = s[notna].astype(str).to_numpy()  # "3" for ints, "1.5" for floats
+        return out
     edges = entry["edges"]
     n_bins = entry["n_bins"]
-    v = pd.to_numeric(pd.Series(values), errors="coerce").to_numpy(dtype=float)
+    v = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float)
     finite = np.isfinite(v)
-    out = np.empty(v.shape[0], dtype=object)
-    out[:] = np.nan
     if edges.size == 0:
-        out[finite] = 0  # single degenerate bin
+        out[finite] = "0"  # single degenerate bin
     else:
-        out[finite] = np.clip(np.digitize(v[finite], edges), 0, n_bins - 1)
+        out[finite] = np.clip(np.digitize(v[finite], edges), 0, n_bins - 1).astype(str)
     return out

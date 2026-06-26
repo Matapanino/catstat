@@ -76,8 +76,10 @@ Trusted-Publisher setup remain the maintainer's.
   (`tests/test_check_estimator.py`, sklearn ≥ 1.6) — applicable checks pass, inapplicable ones waived
   with reasons (KI-012); fixed estimator pickling (cached backend module → `__getstate__`/`__setstate__`).
 - ✅ **Project hygiene (0.1.1)**: `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue + PR templates.
-- ⏳ **Maintainer-only:** configure the PyPI Trusted Publisher + enable GitHub Pages, then tag
-  `v0.1.1` → auto-publish. v0.1.0's own PyPI upload is separate. (KI-020 GPU perf is optional.)
+- ✅ **0.1.1 PUBLISHED (2026-06-26)**: `v0.1.1` tagged → release workflow built + published to PyPI
+  via Trusted Publishing; `pip install catstat==0.1.1` verified in a clean venv; GitHub release created.
+- ⏳ **Maintainer-only:** enable GitHub Pages (Settings → Pages → GitHub Actions) so the Docs
+  workflow deploys the API site. (KI-020 GPU perf is the optional larger follow-up.)
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -95,8 +97,8 @@ Trusted-Publisher setup remain the maintainer's.
 > GitHub Pages). ✅ sklearn tags + sklearn-compat hardening (documented `check_estimator` subset,
 > KI-012; estimator pickling fixed). ✅ Fixed two pre-existing blockers: CI green (pytest
 > `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022) — **CI is now green**.
-> ✅ project-hygiene files (CONTRIBUTING, SECURITY, issue/PR templates). **Arc complete; CI green.**
-> **Remaining = maintainer-only:** configure the PyPI Trusted Publisher and enable GitHub Pages
-> (Settings → Pages → GitHub Actions), then `git tag v0.1.1 && git push origin v0.1.1` to
-> auto-publish (v0.1.0's own PyPI upload is separate). Optional larger follow-up: KI-020 GPU
-> on-device perf — needs a fresh Colab crossover verdict before re-enabling `auto`.
+> **0.1.1 is released** (2026-06-26): tagged `v0.1.1` → auto-published to PyPI via Trusted
+> Publishing (`pip install catstat==0.1.1` verified) + a GitHub release. CI green; the polish arc is
+> complete. **Remaining = maintainer-only:** enable GitHub Pages (Settings → Pages → GitHub Actions)
+> so the Docs workflow deploys the API site. Optional larger follow-up: KI-020 GPU on-device perf —
+> needs a fresh Colab crossover verdict before re-enabling `auto`.

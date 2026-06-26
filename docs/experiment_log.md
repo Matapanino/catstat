@@ -174,4 +174,14 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   `v0.1.1` tag) are maintainer-only.
 - Verdict: docs/verdicts/2026-06-26-project-hygiene-verdict.md
 
+## 2026-06-26 — 0.1.1 PUBLISHED to PyPI (first release)
+- Hypothesis: the tag-driven release workflow publishes 0.1.1 to PyPI via Trusted Publishing.
+- Setup: finalized the CHANGELOG date; tagged `v0.1.1` and pushed; `release.yml` ran (build +
+  publish). The maintainer had configured the (pending) Trusted Publisher.
+- Result: KEEP — both jobs green; `catstat 0.1.1` is on PyPI (releases: ['0.1.1']; 0.1.0 stayed
+  GitHub-only). Clean-venv `pip install catstat==0.1.1` imports and `fit_transform` works on pandas
+  3.0.3. GitHub release v0.1.1 created with the CHANGELOG notes. Pages enablement remains
+  maintainer-only (a public-hosting config change).
+- Verdict: n/a (release execution; see docs/verdicts/2026-06-26-release-automation-verdict.md).
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

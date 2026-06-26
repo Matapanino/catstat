@@ -1,7 +1,8 @@
 """catstat -- unified CPU/GPU statistical categorical encoding.
 
 Leakage-safe target encoding generalized to arbitrary statistics, with one sklearn-compatible API.
-M0 is CPU-only (pandas/numpy); see docs/roadmap.md.
+Runs on CPU (pandas/numpy) today; the GPU path (cuDF/CuPy) is parity-validated but auto-selection
+stays on CPU until it is faster (see docs/roadmap.md and docs/known_issues.md, KI-020).
 """
 
 from __future__ import annotations

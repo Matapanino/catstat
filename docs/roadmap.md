@@ -61,8 +61,11 @@ Trusted-Publisher setup remain the maintainer's.
 - ✅ **Release automation (0.1.1)**: `.github/workflows/release.yml` — a `v*` tag builds + publishes
   to PyPI via **Trusted Publishing** (OIDC, no token), guarded by a tag↔version check; checklist
   rewritten (automated path + manual fallback). Opened the 0.1.1 cycle (version bump + CHANGELOG).
-- ⏳ README polish, API docs (pdoc + Pages), estimator-check hardening (KI-012), project hygiene;
-  then the maintainer's one-time PyPI Trusted-Publisher setup + `v0.1.1` tag.
+- ✅ **README polish (0.1.1)**: honest status (replaced the stale "M0 alpha — CPU-only" marker),
+  CI/PyPI/Python/license badges, install + extras, a statistics/feature table, a leakage-safe note,
+  and the API-docs link. `twine check` confirms it renders as the PyPI long-description.
+- ⏳ API docs (pdoc + Pages), estimator-check hardening (KI-012), project hygiene; then the
+  maintainer's one-time PyPI Trusted-Publisher setup + `v0.1.1` tag.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -75,9 +78,8 @@ Trusted-Publisher setup remain the maintainer's.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** release-polish arc → **0.1.1** is underway. ✅ Commit 1: release automation
-> (`.github/workflows/release.yml`, tokenless Trusted Publishing) + opened 0.1.1. **Next:** README
-> polish (badges, honest status, install, stat/feature table, API-docs link); then API docs
-> (pdoc + GitHub Pages), sklearn estimator-check hardening (KI-012), and project-hygiene files.
-> v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the maintainer's; the GPU
-> on-device perf redesign (KI-020) is the larger optional follow-up.
+> **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
+> Publishing) + opened 0.1.1. ✅ Commit 2: README polish. **Next:** API docs (pdoc + GitHub Pages),
+> then sklearn estimator-check hardening (KI-012) and project-hygiene files (CONTRIBUTING, SECURITY,
+> issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
+> maintainer's; the GPU on-device perf redesign (KI-020) is the larger optional follow-up.

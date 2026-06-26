@@ -9,6 +9,10 @@ All notable changes to `catstat` are documented here. Format follows
 - Releases now build and publish to PyPI automatically on a `v*` tag, via GitHub Actions and PyPI
   **Trusted Publishing** (OIDC — no stored API token). See `docs/publishing_checklist.md`.
 
+### Documentation
+- Rewrote the README: status badges, an honest CPU/GPU status, install + extras, a statistics/
+  feature table, a "leakage-safe by design" note, and a link to the API reference.
+
 ## [0.1.0] — 2026-06-26
 
 First public release. Leakage-safe, sklearn-compatible statistical categorical encoding with one

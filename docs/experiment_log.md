@@ -98,4 +98,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Verdict: docs/verdicts/2026-06-26-release-automation-verdict.md
 - Maintainer follow-up: one-time PyPI Trusted-Publisher config, then `git tag v0.1.1` to publish.
 
+## 2026-06-26 — README polish (status / badges / feature table)
+- Hypothesis: the README can be made accurate and credible for a public 0.1.1 without touching behavior.
+- Setup: rewrote `README.md`; fixed the `__init__` module docstring; CPU-only macOS; `scripts/check.sh`
+  + `python -m build` + `twine check`.
+- Result: KEEP — green gate green (88 passed / 2 GPU-skipped); twine check PASSED (README renders as
+  the PyPI long-description). Stale "M0 (alpha) — CPU-only" replaced; badges/install/quickstart/
+  stat-table/leakage note/API link added; stat table matches `_stats.py`; GPU honesty matches KI-020.
+- Verdict: docs/verdicts/2026-06-26-readme-polish-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

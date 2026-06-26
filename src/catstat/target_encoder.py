@@ -57,6 +57,3 @@ class TargetEncoder(_BaseStatEncoder):
 
     def _resolve_stat_specs(self):
         return resolve_stats(self.stats)
-
-    def _more_tags(self):
-        return {"requires_y": True}

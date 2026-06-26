@@ -66,7 +66,12 @@ Trusted-Publisher setup remain the maintainer's.
   and the API-docs link. `twine check` confirms it renders as the PyPI long-description.
 - ✅ **API docs (0.1.1)**: `scripts/build_docs.sh` (pdoc) + `.github/workflows/docs.yml` (GitHub
   Pages). Build verified locally (index/catstat HTML, no import errors). Maintainer enables Pages once.
-- ⏳ Estimator-check hardening (KI-012), project hygiene; then the maintainer's one-time PyPI
+- ✅ **sklearn tags (0.1.1)**: `__sklearn_tags__` (≥1.6) + `_more_tags` (<1.6) on the base encoder
+  — categorical/string/`allow_nan` + `requires_y` (supervised). Verified on sklearn 1.9 in a venv.
+- ⏳ **CI red + pandas 3.0** (discovered this arc, both pre-existing): CI's bare `pytest` can't
+  import `tests` (KI-021); pandas 3.0's default `str` dtype isn't auto-selected by `cols="auto"`
+  (KI-022). Fixing both next to get CI green.
+- ⏳ check_estimator subset test (KI-012), project hygiene; then the maintainer's one-time PyPI
   Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
 
 ## Recommended implementation order (PR-sized)
@@ -82,6 +87,8 @@ Trusted-Publisher setup remain the maintainer's.
 ## "Next" pointer (update each session)
 > **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
 > Publishing) + opened 0.1.1. ✅ Commit 2: README polish. ✅ Commit 3: API docs (pdoc +
-> GitHub Pages). **Next:** sklearn estimator-check hardening (KI-012) and project-hygiene files
-> (CONTRIBUTING, SECURITY, issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
+> GitHub Pages). ✅ sklearn tags. **Discovered (pre-existing):** CI is red (bare `pytest` can't
+> import `tests`, KI-021) and `cols="auto"` breaks on pandas 3.0's `str` dtype (KI-022) — fixing
+> both next to get CI green. **Then:** the check_estimator subset test (KI-012) and project-hygiene
+> files (CONTRIBUTING, SECURITY, issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
 > maintainer's; the GPU on-device perf redesign (KI-020) is the larger optional follow-up.

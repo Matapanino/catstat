@@ -1,12 +1,16 @@
 import pandas as pd
 import pytest
+import sklearn
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
+from sklearn.utils.fixes import parse_version
 from tests.conftest import make_regression
 
 from catstat import CountEncoder, TargetEncoder
+
+SKLEARN_GE_16 = parse_version(sklearn.__version__) >= parse_version("1.6")
 
 
 def test_clone_and_get_set_params():
@@ -73,3 +77,20 @@ def test_target_encoder_requires_y():
     X, _ = make_regression()
     with pytest.raises(ValueError, match="requires y"):
         TargetEncoder(cols=["g"]).fit(X)
+
+
+def test_more_tags_reflect_supervision():
+    # _more_tags is the scikit-learn < 1.6 tag API (kept for those versions; ignored by newer).
+    assert TargetEncoder(cols=["g"])._more_tags()["requires_y"] is True
+    assert CountEncoder(cols=["g"])._more_tags()["requires_y"] is False
+    assert TargetEncoder(cols=["g"])._more_tags()["allow_nan"] is True
+
+
+@pytest.mark.skipif(not SKLEARN_GE_16, reason="__sklearn_tags__ requires scikit-learn>=1.6")
+def test_sklearn_tags_categorical_and_requires_y():
+    t = TargetEncoder(cols=["g"]).__sklearn_tags__()
+    assert t.target_tags.required is True
+    assert t.input_tags.categorical and t.input_tags.string and t.input_tags.allow_nan
+    c = CountEncoder(cols=["g"]).__sklearn_tags__()
+    assert c.target_tags.required is False
+    assert c.input_tags.allow_nan is True

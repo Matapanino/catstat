@@ -39,6 +39,26 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def _resolve_stat_specs(self):
         raise NotImplementedError
 
+    # ---- scikit-learn estimator tags ---------------------------------------------------------
+    # catstat encoders are categorical encoders: they accept string/categorical columns and learn
+    # NaN as its own level when handle_missing="value"; supervised encoders additionally require y.
+    # Both tag APIs are provided -- __sklearn_tags__ for scikit-learn >= 1.6, and _more_tags for
+    # < 1.6 (newer versions ignore it; older ones ignore __sklearn_tags__).
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.target_tags.required = self._is_supervised()
+        tags.input_tags.categorical = True
+        tags.input_tags.string = True
+        tags.input_tags.allow_nan = True
+        return tags
+
+    def _more_tags(self):
+        return {
+            "requires_y": self._is_supervised(),
+            "X_types": ["categorical", "string", "2darray"],
+            "allow_nan": True,
+        }
+
     # ---- key helper --------------------------------------------------------------------------
     @staticmethod
     def _key(meta):

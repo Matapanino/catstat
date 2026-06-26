@@ -8,6 +8,10 @@ All notable changes to `catstat` are documented here. Format follows
 ### Changed
 - Releases now build and publish to PyPI automatically on a `v*` tag, via GitHub Actions and PyPI
   **Trusted Publishing** (OIDC — no stored API token). See `docs/publishing_checklist.md`.
+- `TargetEncoder` / `CountEncoder` / `FrequencyEncoder` now advertise scikit-learn estimator tags
+  via both `__sklearn_tags__` (sklearn ≥ 1.6) and `_more_tags` (< 1.6): categorical/string input,
+  `allow_nan` (NaN is learned as a level under `handle_missing="value"`), and `requires_y` for the
+  supervised encoder — so `check_estimator` skips inapplicable checks.
 
 ### Documentation
 - Rewrote the README: status badges, an honest CPU/GPU status, install + extras, a statistics/

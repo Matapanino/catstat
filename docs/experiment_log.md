@@ -116,4 +116,19 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Verdict: docs/verdicts/2026-06-26-api-docs-verdict.md
 - Maintainer follow-up: enable Pages (Settings → Pages → Source: GitHub Actions).
 
+## 2026-06-26 — scikit-learn estimator tags (__sklearn_tags__ + _more_tags)
+- Hypothesis: the encoders can advertise correct sklearn tags (categorical/string/allow_nan +
+  requires_y) across sklearn versions without changing encoding behavior.
+- Setup: added both tag APIs on `_BaseStatEncoder` keyed off `_is_supervised()`; tag unit tests
+  (`__sklearn_tags__` guarded to >=1.6). Local sklearn 1.2 `scripts/check.sh`; fresh sklearn 1.9.0
+  / pandas 3.0.3 venv for the >=1.6 path.
+- Result: KEEP — local green (88 passed / 2 GPU-skipped; new _more_tags test runs, __sklearn_tags__
+  test skips on 1.2). On sklearn 1.9 the tags resolve correctly (TE required=True, CE required=False,
+  categorical/string/allow_nan=True).
+- DISCOVERED (pre-existing, not from this change): (1) CI red — bare `pytest tests/` can't import
+  `tests` (no repo root on sys.path); ModuleNotFoundError on every CI run since before this arc.
+  (2) pandas 3.0 — `select_cols` misses the new default `str`/StringDtype, so `cols="auto"` raises;
+  3 tests fail under pandas 3.0 (85 pass). Both fixed in the next two commits.
+- Verdict: docs/verdicts/2026-06-26-sklearn-tags-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

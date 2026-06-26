@@ -11,7 +11,14 @@ from __future__ import annotations
 
 from . import _cpu, _gpu
 
-_GPU_CELL_THRESHOLD = 1_000_000  # n_rows * n_cols above which auto considers GPU
+# Colab T4 crossover (2026-06-26, docs/verdicts/2026-06-26-gpu-crossover-verdict.md): the current
+# host-orchestrated GPU path is SLOWER than CPU up to 1M rows (cpu/gpu speedup 0.28-0.86), so
+# `auto` must NOT pick it -- picking a slower backend by default would be a regression. Explicit
+# backend="gpu" stays available (validated CPU/GPU-allclose, incl. missing) for device-resident
+# pipelines / much larger data. Re-enable + calibrate the threshold once the device path keeps
+# keys/folds on-device (avoids the per-fold host<->device round-trips that currently dominate).
+_AUTO_GPU_ENABLED = False
+_GPU_CELL_THRESHOLD = 5_000_000  # retained for when _AUTO_GPU_ENABLED flips True
 
 
 def select_backend(backend: str, n_rows: int, n_cols: int, all_gpu_stats: bool):
@@ -24,9 +31,10 @@ def select_backend(backend: str, n_rows: int, n_cols: int, all_gpu_stats: bool):
     if backend != "auto":
         raise ValueError(f"backend={backend!r} must be one of 'auto', 'cpu', 'gpu'.")
 
-    # auto: prefer GPU only if it is available, applicable, and would pay off.
+    # auto: only pick GPU if enabled (currently off, see above), available, applicable, and large.
     if (
-        _gpu.AVAILABLE
+        _AUTO_GPU_ENABLED
+        and _gpu.AVAILABLE
         and all_gpu_stats
         and (n_rows * max(n_cols, 1)) >= _GPU_CELL_THRESHOLD
     ):

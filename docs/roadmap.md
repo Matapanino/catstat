@@ -36,12 +36,13 @@ plans.
   threaded through `_smoothing`/`_aggregations`; `backend="auto"` predicate + loud `gpu` errors.
 - ✅ CI workflow (`.github/workflows/ci.yml`); coverage 88.17%.
 - ✅ `scripts/colab_gpu_parity.{sh,py}`; `test_cpu_gpu_parity.py` (allclose, gpu-marked).
-- ✅ **Colab validation (T4, 2026-06-26)**: CPU/GPU allclose for mean/var × reg/bin/mc, transform +
-  fit_transform (max\|Δ\|~1e-14). `backend="gpu"`/`"auto"` validated for single-column numeric/string
-  keys. (`docs/verdicts/2026-06-26-gpu-parity-verdict.md`.)
-- ⏳ Validate on device: missing-as-value/cuDF nulls + `combination` (currently forced to CPU).
-- ⏳ Conversion-overhead / CPU-vs-GPU crossover benchmark → calibrate the `auto` cell threshold.
-- ⏳ Vectorize combination joint-key construction (currently a Python loop).
+- ✅ **Colab validation (T4, 2026-06-26)**: CPU/GPU allclose for mean/var × reg/bin/mc **+
+  missing-as-value** (cuDF nulls), transform + fit_transform. Two verdicts (parity + crossover).
+- ✅ **Crossover measured**: GPU is *slower* than CPU up to 1M rows (speedup 0.28–0.86) →
+  `backend="auto"` GPU **disabled** (`_AUTO_GPU_ENABLED=False`); explicit `backend="gpu"` stays. KI-020.
+- ⏳ `combination` on GPU (tuple keys, host-only) + vectorize joint-key build (KI-018/019).
+- ⏳ **GPU perf**: keep keys/folds on-device to remove the per-fold host↔device round-trips that
+  dominate; then re-run the crossover and re-enable `auto` if it wins.
 
 ## Phase 3 — advanced — planned
 - `quantile`, `skew`, custom-callable aggregations (CPU-only; order-independence required).
@@ -55,11 +56,12 @@ plans.
   **M0 bootstrap (2026-06-26)**.
 - ✅ **Phase 2 (CPU + GPU validated)** 2026-06-26: var/std/median/min/max, combination mode,
   GPU backend `backends/_gpu.py` **validated CPU/GPU-allclose on a Colab T4**, CI, Colab loop, `git`.
-- **Phase 2 — remaining.** Validate missing/nulls + `combination` on device; add a CPU-vs-GPU
-  crossover benchmark to calibrate the `backend="auto"` threshold.
+- **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
+  GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** Either (a) extend `scripts/colab_gpu_parity.py` with a missing-as-value + a
-> CPU-vs-GPU timing case and re-run on T4 to close KI-018 and calibrate the `auto` threshold, or
-> (b) start Phase 3 (quantile/skew/custom aggregations).
+> **Next task:** Phase 2 GPU functional + perf work is parked (KI-020: GPU not yet faster than CPU;
+> `auto` disabled, explicit `gpu` validated). Recommended next is **Phase 3** — start with
+> `quantile`/`skew` (CPU), then custom-callable aggregations. Revisit GPU perf only with an
+> on-device redesign + a new crossover verdict.

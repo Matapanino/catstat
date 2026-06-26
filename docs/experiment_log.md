@@ -47,4 +47,14 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   max|Δ|~1e-14. backend_gpu="gpu" confirmed.
 - Verdict: docs/verdicts/2026-06-26-gpu-parity-verdict.md (+ harness report + JSONL artifact).
 
+## 2026-06-26 — GPU missing-on-device + CPU/GPU crossover (T4)
+- Hypothesis: (1) GPU encodes missing-as-value correctly via cuDF nulls; (2) GPU beats CPU above
+  some size, so `backend="auto"` should switch over at a calibrated threshold.
+- Setup: Colab T4, Python 3.12.13; parity n=200k incl. 10%-missing case; crossover n=10k/100k/1M.
+- Result: (1) KEEP — missing-as-value allclose (max|Δ|~3e-16); MISSING→cuDF-null→back works.
+  (2) **NEGATIVE/CHANGE** — GPU is *slower* than CPU at all sizes up to 1M (speedup 0.28/0.27/0.86);
+  the per-fold host↔device round-trip dominates. → disabled auto-GPU (`_AUTO_GPU_ENABLED=False`);
+  explicit `backend="gpu"` retained.
+- Verdict: docs/verdicts/2026-06-26-gpu-crossover-verdict.md (KI-020).
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

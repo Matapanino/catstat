@@ -11,13 +11,14 @@ exact). KI-010 (auto-smoothing parity) remains open.
 ## Intentional deferrals (not bugs — do not "fix" without a roadmap change)
 | id | sev | item | notes |
 |----|-----|------|-------|
-| KI-001 | S3 | GPU **validated** for single-col numeric/string keys (no missing) | CPU/GPU allclose on **T4 2026-06-26** (max\|Δ\|~1e-14) for mean/var × reg/bin/mc, transform + fit_transform. Missing/nulls + combination on device still untested (KI-018). |
+| KI-001 | S3 | GPU **validated** (incl. missing-as-value) but not faster yet | CPU/GPU allclose on **T4 2026-06-26** for mean/var × reg/bin/mc + missing. But GPU is *slower* than CPU up to 1M rows → `auto` disabled (KI-020). Explicit `backend="gpu"` works. |
 | KI-002 | S3 | quantile/skew/custom stats absent | P3. (var/std/median/min/max landed in P2.) |
 | KI-003 | — | ~~`multi_feature_mode="combination"` not implemented~~ | **Resolved 2026-06-26** (joint group-by). |
 | KI-004 | S3 | Ordered (CatBoost) / leave-one-out modes absent | P3 options. |
 | KI-005 | S3 | `set_output("polars")` not supported | pandas/numpy/`set_output("pandas")` work; polars in P3. |
-| KI-018 | S3 | GPU path scope: single-column numeric/string keys | combination forces CPU; missing-as-value + cuDF nulls need Colab hardening (KI-001). |
+| KI-018 | S3 | GPU `combination` (tuple keys) forced to CPU | missing-as-value now works on GPU (validated 2026-06-26); only combination remains host-only. |
 | KI-019 | S3 | combination joint-key build is a Python loop | O(n) host loop; vectorize for large N. |
+| KI-020 | S2 | GPU not faster than CPU up to 1M rows (T4) | host↔device round-trip per OOF fold dominates. `auto` disabled; perf needs on-device keys/folds. `docs/verdicts/2026-06-26-gpu-crossover-verdict.md`. |
 
 ## Open risks to track (carry into implementation)
 | id | sev | risk | mitigation |

@@ -68,10 +68,13 @@ pandas vs cuDF. RAPIDS is isolated to `backends/_gpu.py`; the CPU path never imp
 
 ## Backend selection
 
-`backend="auto"` picks GPU **iff** cuDF+CuPy import, a GPU is present, the input is already
-cuDF/CuPy or `n_rows·n_cols ≥ ~1e6`, and no CPU-only stat is requested — else CPU. Explicit
-`backend="gpu"` with RAPIDS/GPU missing **raises** (no silent fallback). `backend_` records the
-actual engine. (Deliberately differs from repleafgbm, where `auto` never picks GPU.)
+`backend="auto"` currently resolves to **CPU always** (`_AUTO_GPU_ENABLED=False` in
+`backends/_dispatch.py`): the Colab T4 crossover (2026-06-26) showed the host-orchestrated GPU path
+is *slower* than CPU up to 1M rows, so auto must not pick it. Explicit `backend="gpu"` is
+**validated** (CPU/GPU allclose, incl. missing) and available for device-resident pipelines / much
+larger data; with RAPIDS/GPU missing it **raises** (no silent fallback). `backend_` records the
+actual engine. Re-enable auto-GPU + calibrate `_GPU_CELL_THRESHOLD` only after the device path is
+optimized (keys/folds on-device) and a fresh crossover verdict supports it.
 
 ## Testing — one command
 

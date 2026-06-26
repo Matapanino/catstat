@@ -131,4 +131,14 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   3 tests fail under pandas 3.0 (85 pass). Both fixed in the next two commits.
 - Verdict: docs/verdicts/2026-06-26-sklearn-tags-verdict.md
 
+## 2026-06-26 — CI green: pytest pythonpath (tests import)
+- Hypothesis: CI is red because bare `pytest tests/` can't import `tests.conftest` (repo root not on
+  sys.path); adding a pytest `pythonpath` fixes it.
+- Setup: reproduced locally (`unset PYTHONPATH; pytest tests/` → ModuleNotFoundError: tests). Added
+  `pythonpath=["src", "."]` to `[tool.pytest.ini_options]`.
+- Result: KEEP — bare `pytest tests/` now 89 passed / 3 skipped (pandas 1.5); `scripts/check.sh`
+  green. CI had been red since before this arc (a collection error, unrelated to pandas/my changes).
+  The pandas 3.0 break (KI-022) is fixed in the next commit.
+- Verdict: docs/verdicts/2026-06-26-ci-pytest-pythonpath-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

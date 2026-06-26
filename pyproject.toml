@@ -46,6 +46,10 @@ force-include = { "src/catstat/py.typed" = "catstat/py.typed" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the src layout (for `catstat`) and the repo root (for `tests.conftest`) on sys.path so the
+# suite runs under any invocation -- `pytest`, `python -m pytest`, with or without an editable
+# install. Without this, CI's bare `pytest tests/` cannot import `tests.conftest`.
+pythonpath = ["src", "."]
 markers = [
     "gpu: requires a GPU + RAPIDS (cudf/cupy); skipped on CPU-only machines and CI",
 ]

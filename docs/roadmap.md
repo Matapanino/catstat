@@ -45,10 +45,11 @@ plans.
   dominate; then re-run the crossover and re-enable `auto` if it wins.
 
 ## Phase 3 — advanced — in progress (2026-06-26)
-- ✅ `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or dict form;
-  CPU-only, cross-fitted, continuous-only, global fallback). Quantiles/IQR via custom callables;
-  `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
-- ⏳ Ordered (CatBoost-style) and leave-one-out encoding modes.
+- ✅ **Phase 3a**: `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or
+  dict form; CPU-only, cross-fitted, continuous-only, global fallback). Quantiles/IQR via custom
+  callables; `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
+- ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
+  modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
 - ⏳ `set_output("polars")`, advanced metadata routing, estimator-check hardening.
 - ⏳ PyPI release + API docs; self-improvement-loop hardening.
 
@@ -63,6 +64,6 @@ plans.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** Phase 3 continues — **CatBoost-style ordered** target statistics and a
-> **leave-one-out** mode (both opt-in, leakage-safe alternatives to k-fold OOF), then
-> `set_output("polars")` and a PyPI release. (Phase 2 GPU perf parked under KI-020.)
+> **Next task:** Phase 3 wrap-up — `set_output("polars")` (polars is installed) + estimator-check
+> hardening, then **PyPI release prep** (version, CHANGELOG, docs, `release-prep` skill). (Phase 2
+> GPU perf parked under KI-020.)

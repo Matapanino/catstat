@@ -9,9 +9,13 @@ from ._stats import resolve_stats
 class TargetEncoder(_BaseStatEncoder):
     """Leakage-safe target encoding, generalized over a set of statistics.
 
-    ``fit_transform`` is out-of-fold (leakage-safe for the training set); ``fit().transform()``
-    learns full-data encodings and is the path for *new* data. M0 supports ``stats`` drawn from
-    ``{"mean", "count", "frequency"}`` on CPU, for continuous / binary / multiclass targets.
+    ``fit_transform`` is leakage-safe for the training set; ``fit().transform()`` learns full-data
+    encodings and is the path for *new* data. ``stats`` accepts built-ins
+    (``mean``/``count``/``frequency``/``var``/``std``/``median``/``min``/``max``/``skew``) and
+    custom ``(name, callable)`` aggregations. ``scheme`` selects how the *mean* is cross-fitted on
+    the training set: ``"kfold"`` (default, out-of-fold), ``"loo"`` (leave-one-out), or
+    ``"ordered"`` (CatBoost-style ordered target statistics). ``loo``/``ordered`` apply to the mean
+    only (use with ``stats=["mean"]``, optionally plus count/frequency).
 
     Parameters mirror ``docs/proposals/target-encoder-library-design.md`` §3.
     """
@@ -23,6 +27,7 @@ class TargetEncoder(_BaseStatEncoder):
         target_type="auto",
         smooth="auto",
         cv=5,
+        scheme="kfold",
         shuffle=True,
         random_state=None,
         handle_unknown="value",
@@ -37,6 +42,7 @@ class TargetEncoder(_BaseStatEncoder):
         self.target_type = target_type
         self.smooth = smooth
         self.cv = cv
+        self.scheme = scheme
         self.shuffle = shuffle
         self.random_state = random_state
         self.handle_unknown = handle_unknown

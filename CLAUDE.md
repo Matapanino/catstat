@@ -39,8 +39,10 @@ has no principled rule.
 
 `TargetEncoder` (supervised, cross-fitted, `stats=[...]`), `CountEncoder` /
 `FrequencyEncoder` (unsupervised), over a shared private `_BaseStatEncoder`. Key params:
-`cols, stats, target_type, smooth, cv, shuffle, random_state, handle_unknown, handle_missing,
-multi_feature_mode, min_samples_category, backend, output`. See
+`cols, stats, target_type, smooth, cv, scheme, shuffle, random_state, handle_unknown,
+handle_missing, multi_feature_mode, min_samples_category, backend, output`. `stats` accepts
+built-ins + `(name, callable)` custom aggregations; `scheme ∈ {kfold, loo, ordered}` selects how
+the mean is cross-fitted (loo/ordered are mean-only). See
 `docs/proposals/target-encoder-library-design.md` §3.
 
 ## Code map (target layout — build to this)

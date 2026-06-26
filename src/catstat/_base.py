@@ -10,10 +10,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_is_fitted
 
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
-from ._cross_fit import make_folds, resolve_cv
+from ._cross_fit import loo_encode, make_folds, ordered_encode, resolve_cv
 from ._feature_names import build_columns
 from ._smoothing import fit_mean_encoding
 from ._validation import (
@@ -94,6 +95,17 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     f"stat={spec.name!r} requires a continuous target; got "
                     f"target_type={self.target_type_!r}. Dispersion/order statistics on "
                     "classification targets are not supported."
+                )
+
+        scheme = getattr(self, "scheme", "kfold")
+        if scheme not in ("kfold", "loo", "ordered"):
+            raise ValueError(f"scheme={scheme!r} must be 'kfold', 'loo', or 'ordered'.")
+        if scheme != "kfold":
+            bad = [s.name for s in self._specs if s.target_dependent and s.name != "mean"]
+            if bad:
+                raise ValueError(
+                    f"scheme={scheme!r} cross-fits the mean only (count/frequency are allowed "
+                    f"too); got target-dependent stats {bad}. Use scheme='kfold' for those."
                 )
 
         self._columns_meta = build_columns(
@@ -265,16 +277,59 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
         if self._is_supervised() and any(m.target_dependent for m in self._columns_meta):
             y_arr = np.asarray(y)
-            splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
-            folds = make_folds(Xdf.shape[0], y_arr, splitter)
-            oof = np.full_like(full, np.nan)
-            for tr, te in folds:
-                tbl = self._fit_all(Xdf.iloc[tr], y_arr[tr])
-                oof[te, :] = self._transform_array(Xdf.iloc[te], tbl)
+            scheme = getattr(self, "scheme", "kfold")
+            if scheme == "kfold":
+                oof = self._kfold_oof(Xdf, y_arr, full.shape)
+            else:
+                oof = self._loo_ordered_oof(Xdf, y_arr, scheme, full.shape)
             for j, meta in enumerate(self._columns_meta):
                 if meta.target_dependent:
                     full[:, j] = oof[:, j]
         return self._wrap_output(full, was_df, Xdf)
+
+    def _kfold_oof(self, Xdf, y_arr, shape):
+        splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
+        folds = make_folds(Xdf.shape[0], y_arr, splitter)
+        oof = np.full(shape, np.nan)
+        for tr, te in folds:
+            tbl = self._fit_all(Xdf.iloc[tr], y_arr[tr])
+            oof[te, :] = self._transform_array(Xdf.iloc[te], tbl)
+        return oof
+
+    def _mean_y_vector(self, y_arr, meta):
+        if self.target_type_ == "continuous":
+            return y_arr.astype(float)
+        if self.target_type_ == "binary":
+            return (y_arr == self.classes_[1]).astype(float)
+        return (y_arr == meta.class_label).astype(float)  # multiclass one-vs-rest
+
+    def _loo_ordered_oof(self, Xdf, y_arr, scheme, shape):
+        """Leave-one-out / ordered encodings for the mean columns (validated: mean-only)."""
+        oof = np.full(shape, np.nan)
+        m = 0.0 if isinstance(self.smooth, str) else float(self.smooth)  # loo pseudo-count
+        # ordered prior weight a (CatBoost) must be > 0; default 1 for "auto"/non-positive smooth.
+        smooth_pos = (not isinstance(self.smooth, str)) and float(self.smooth) > 0
+        a = float(self.smooth) if smooth_pos else 1.0
+        perm = (
+            check_random_state(self.random_state).permutation(len(y_arr))
+            if scheme == "ordered"
+            else None
+        )
+        for j, meta in enumerate(self._columns_meta):
+            if not (meta.target_dependent and meta.stat == "mean"):
+                continue
+            keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[meta.feature])
+            yv = self._mean_y_vector(y_arr, meta)
+            prior = float(yv.mean())
+            if scheme == "loo":
+                vals = loo_encode(keys, yv, m, prior)
+            else:
+                vals = ordered_encode(keys, yv, a, prior, perm)
+            if self.handle_missing == "return_nan":
+                vals = vals.copy()
+                vals[missing_mask] = np.nan
+            oof[:, j] = vals
+        return oof
 
     # ---- output container --------------------------------------------------------------------
     def _wrap_output(self, arr, was_df, Xdf):

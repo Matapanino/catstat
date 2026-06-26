@@ -65,4 +65,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   q90/IQR correct; custom forces CPU + is cross-fitted; `stats=["quantile"]` gives a helpful hint.
 - Verdict: docs/verdicts/2026-06-26-phase3a-skew-custom-verdict.md
 
+## 2026-06-26 — Phase 3b (leave-one-out + ordered/CatBoost schemes)
+- Hypothesis: LOO and ordered target statistics can be added as a `scheme` param (mean-only,
+  leakage-safe alternatives to k-fold) without changing default behavior.
+- Setup: pandas/numpy/sklearn; `scripts/check.sh`.
+- Result: KEEP — 86 passed / 2 GPU-skipped, coverage 90.64%. LOO exact-value check passes; both
+  schemes leakage-safe (noise OOF corr <0.1 vs leaky >0.4); ordered deterministic per seed;
+  non-mean+scheme raises. Bug found+fixed: ordered with smooth=0 gave a=0 → 0/0 nan; default a=1.
+- Verdict: docs/verdicts/2026-06-26-phase3b-loo-ordered-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

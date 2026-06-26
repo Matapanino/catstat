@@ -12,6 +12,8 @@ All notable changes to `catstat` are documented here. Format follows
 ### Documentation
 - Rewrote the README: status badges, an honest CPU/GPU status, install + extras, a statistics/
   feature table, a "leakage-safe by design" note, and a link to the API reference.
+- Published an API reference built with `pdoc` (`scripts/build_docs.sh`), deployed to GitHub Pages
+  via `.github/workflows/docs.yml`.
 
 ## [0.1.0] — 2026-06-26
 

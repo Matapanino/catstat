@@ -16,6 +16,9 @@ htmlcov/
 benchmarks/results/run.json
 benchmarks/results/_tmp_*.json
 
+# API docs build output (published by .github/workflows/docs.yml)
+site/
+
 # Env / editor
 .venv/
 venv/

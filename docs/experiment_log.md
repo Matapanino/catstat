@@ -107,4 +107,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   stat-table/leakage note/API link added; stat table matches `_stats.py`; GPU honesty matches KI-020.
 - Verdict: docs/verdicts/2026-06-26-readme-polish-verdict.md
 
+## 2026-06-26 — API docs (pdoc + GitHub Pages)
+- Hypothesis: the API reference can be generated reproducibly with pdoc and published to Pages on push.
+- Setup: `scripts/build_docs.sh` + `.github/workflows/docs.yml`; ran the script locally with pdoc 14+.
+- Result: KEEP — build produced `site/index.html` + `catstat.html` + `search.js`, no import errors
+  (pdoc skips the private `_gpu` module → no RAPIDS import on CPU). `docs.yml` parses; green gate
+  unaffected.
+- Verdict: docs/verdicts/2026-06-26-api-docs-verdict.md
+- Maintainer follow-up: enable Pages (Settings → Pages → Source: GitHub Actions).
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

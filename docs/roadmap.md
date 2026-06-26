@@ -64,8 +64,10 @@ Trusted-Publisher setup remain the maintainer's.
 - ✅ **README polish (0.1.1)**: honest status (replaced the stale "M0 alpha — CPU-only" marker),
   CI/PyPI/Python/license badges, install + extras, a statistics/feature table, a leakage-safe note,
   and the API-docs link. `twine check` confirms it renders as the PyPI long-description.
-- ⏳ API docs (pdoc + Pages), estimator-check hardening (KI-012), project hygiene; then the
-  maintainer's one-time PyPI Trusted-Publisher setup + `v0.1.1` tag.
+- ✅ **API docs (0.1.1)**: `scripts/build_docs.sh` (pdoc) + `.github/workflows/docs.yml` (GitHub
+  Pages). Build verified locally (index/catstat HTML, no import errors). Maintainer enables Pages once.
+- ⏳ Estimator-check hardening (KI-012), project hygiene; then the maintainer's one-time PyPI
+  Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -79,7 +81,7 @@ Trusted-Publisher setup remain the maintainer's.
 
 ## "Next" pointer (update each session)
 > **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
-> Publishing) + opened 0.1.1. ✅ Commit 2: README polish. **Next:** API docs (pdoc + GitHub Pages),
-> then sklearn estimator-check hardening (KI-012) and project-hygiene files (CONTRIBUTING, SECURITY,
-> issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
+> Publishing) + opened 0.1.1. ✅ Commit 2: README polish. ✅ Commit 3: API docs (pdoc +
+> GitHub Pages). **Next:** sklearn estimator-check hardening (KI-012) and project-hygiene files
+> (CONTRIBUTING, SECURITY, issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
 > maintainer's; the GPU on-device perf redesign (KI-020) is the larger optional follow-up.

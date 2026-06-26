@@ -49,3 +49,20 @@ def test_output_numpy_and_pandas():
     assert isinstance(arr, np.ndarray)
     df = TargetEncoder(cols=["g"], output="pandas").fit_transform(X, y)
     assert isinstance(df, pd.DataFrame)
+
+
+def test_string_dtype_column_is_auto_selected():
+    # pandas >= 3.0 defaults string columns to StringDtype (not object); cols="auto" must still
+    # select them (KI-022). An explicit "string" dtype keeps this portable to pandas < 3.0.
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(
+        {
+            "g": pd.array(rng.choice(list("abc"), size=300), dtype="string"),
+            "x_num": rng.normal(size=300),
+        }
+    )
+    y = rng.normal(size=300)
+    enc = TargetEncoder(cols="auto")
+    out = enc.fit_transform(X, y)
+    assert list(enc.get_feature_names_out()) == ["g__te_mean"]
+    assert out.shape == (300, 1)

@@ -70,7 +70,8 @@ Trusted-Publisher setup remain the maintainer's.
   — categorical/string/`allow_nan` + `requires_y` (supervised). Verified on sklearn 1.9 in a venv.
 - ✅ **CI green (0.1.1)**: added pytest `pythonpath=["src", "."]` so bare `pytest tests/` can import
   `tests.conftest` (KI-021). CI had been red since before this arc (a collection error, not pandas).
-- ⏳ **pandas 3.0** (KI-022): `cols="auto"` must recognize the new default `str`/`StringDtype`. Next.
+- ✅ **pandas 3.0 (0.1.1)**: `cols="auto"` now selects pandas `StringDtype` columns (KI-022). Full
+  suite green on sklearn 1.9 / pandas 3.0.3 in a venv; CI should now pass end-to-end.
 - ⏳ check_estimator subset test (KI-012), project hygiene; then the maintainer's one-time PyPI
   Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
 
@@ -87,8 +88,8 @@ Trusted-Publisher setup remain the maintainer's.
 ## "Next" pointer (update each session)
 > **Next task:** release-polish arc → **0.1.1**. ✅ Commit 1: release automation (tokenless Trusted
 > Publishing) + opened 0.1.1. ✅ Commit 2: README polish. ✅ Commit 3: API docs (pdoc +
-> GitHub Pages). ✅ sklearn tags. **Discovered (pre-existing):** CI is red (bare `pytest` can't
-> import `tests`, KI-021) and `cols="auto"` breaks on pandas 3.0's `str` dtype (KI-022) — fixing
-> both next to get CI green. **Then:** the check_estimator subset test (KI-012) and project-hygiene
-> files (CONTRIBUTING, SECURITY, issue/PR templates). v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
+> GitHub Pages). ✅ sklearn tags. ✅ Fixed two pre-existing blockers: CI green (pytest
+> `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022). **Next:** the documented
+> check_estimator subset test (KI-012), then project-hygiene files (CONTRIBUTING, SECURITY, issue/PR
+> templates). Maintainer: PyPI Trusted-Publisher + Pages enablement + `v0.1.1` tag. v0.1.0's PyPI upload + the one-time Trusted-Publisher config remain the
 > maintainer's; the GPU on-device perf redesign (KI-020) is the larger optional follow-up.

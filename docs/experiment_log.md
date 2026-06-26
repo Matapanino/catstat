@@ -141,4 +141,15 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   The pandas 3.0 break (KI-022) is fixed in the next commit.
 - Verdict: docs/verdicts/2026-06-26-ci-pytest-pythonpath-verdict.md
 
+## 2026-06-26 — pandas 3.0 compat: cols="auto" selects StringDtype (KI-022)
+- Hypothesis: `cols="auto"` fails on pandas >=3.0 because string columns are now StringDtype (not
+  object) and select_cols only matched object/Categorical; recognizing StringDtype fixes it.
+- Setup: added `_is_categorical_like` (object via `is_object_dtype`, Categorical, StringDtype) in
+  `_validation.py`; regression test with an explicit `dtype="string"` column (portable to pandas
+  1.5). Verified local pandas 1.5.2 (`scripts/check.sh`) + fresh sklearn 1.9.0 / pandas 3.0.3 venv.
+- Result: KEEP — venv full suite 89 passed / 3 skipped (was 3 failed); local green; ruff clean. The
+  3 prior pandas-3.0 failures (numpy-object-in, column-transformer-passthrough, set_output-numpy)
+  now pass. No cross-fit/smoothing change.
+- Verdict: docs/verdicts/2026-06-26-pandas3-string-dtype-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

@@ -19,6 +19,10 @@ All notable changes to `catstat` are documented here. Format follows
 - Published an API reference built with `pdoc` (`scripts/build_docs.sh`), deployed to GitHub Pages
   via `.github/workflows/docs.yml`.
 
+### Fixed
+- `cols="auto"` now selects pandas `StringDtype` columns, so auto-detection works on pandas ≥ 3.0
+  (where string columns default to `StringDtype` rather than `object`). (KI-022)
+
 ## [0.1.0] — 2026-06-26
 
 First public release. Leakage-safe, sklearn-compatible statistical categorical encoding with one

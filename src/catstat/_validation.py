@@ -53,18 +53,27 @@ def prepare_X(X) -> tuple[pd.DataFrame, bool, list]:
     return pd.DataFrame(arr, columns=cols), False, cols
 
 
+def _is_categorical_like(dtype) -> bool:
+    """Whether an auto-selected column dtype counts as categorical for encoding.
+
+    Recognizes object, pandas ``Categorical``, and pandas ``StringDtype``. pandas >= 3.0 types
+    string columns as ``StringDtype`` (repr ``str``) rather than ``object``, so handling it keeps
+    ``cols="auto"`` working across pandas versions (KI-022).
+    """
+    if pd.api.types.is_object_dtype(dtype) or isinstance(dtype, pd.CategoricalDtype):
+        return True
+    string_dtype = getattr(pd, "StringDtype", None)
+    return string_dtype is not None and isinstance(dtype, string_dtype)
+
+
 def select_cols(Xdf: pd.DataFrame, cols) -> list:
     """Resolve the ``cols`` parameter to a concrete list of column labels.
 
-    ``"auto"``/``None`` selects object and pandas ``category`` dtype columns. A list may hold
-    column labels or positional integers (handy for numpy input).
+    ``"auto"``/``None`` selects object, pandas ``category``, and pandas string-dtype columns. A
+    list may hold column labels or positional integers (handy for numpy input).
     """
     if cols == "auto" or cols is None:
-        selected = [
-            c
-            for c in Xdf.columns
-            if Xdf[c].dtype == object or isinstance(Xdf[c].dtype, pd.CategoricalDtype)
-        ]
+        selected = [c for c in Xdf.columns if _is_categorical_like(Xdf[c].dtype)]
         if not selected:
             raise ValueError(
                 "cols='auto' found no object/category columns to encode. Pass cols=[...] "

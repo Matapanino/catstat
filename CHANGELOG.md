@@ -3,7 +3,7 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [0.1.1] — unreleased
+## [0.1.1] — 2026-06-26
 
 ### Changed
 - Releases now build and publish to PyPI automatically on a `v*` tag, via GitHub Actions and PyPI
@@ -56,5 +56,5 @@ API across CPU (pandas/numpy) and, optionally, GPU (cuDF/CuPy).
   aggregations run on CPU. sklearn-parity tests require `scikit-learn>=1.4`. See
   `docs/known_issues.md`.
 
-[0.1.1]: https://github.com/Matapanino/catstat/compare/v0.1.0...HEAD
+[0.1.1]: https://github.com/Matapanino/catstat/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Matapanino/catstat/releases/tag/v0.1.0

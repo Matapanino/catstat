@@ -11,7 +11,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 ## Intentional deferrals (not bugs — do not "fix" without a roadmap change)
 | id | sev | item | notes |
 |----|-----|------|-------|
-| KI-001 | S2 | GPU backend **written but Colab-unverified** | `backends/_gpu.py` exists; no local GPU. Validate via `scripts/colab_gpu_parity.sh`. `backend="gpu"` raises cleanly off-GPU. |
+| KI-001 | S3 | GPU **validated** for single-col numeric/string keys (no missing) | CPU/GPU allclose on **T4 2026-06-26** (max\|Δ\|~1e-14) for mean/var × reg/bin/mc, transform + fit_transform. Missing/nulls + combination on device still untested (KI-018). |
 | KI-002 | S3 | quantile/skew/custom stats absent | P3. (var/std/median/min/max landed in P2.) |
 | KI-003 | — | ~~`multi_feature_mode="combination"` not implemented~~ | **Resolved 2026-06-26** (joint group-by). |
 | KI-004 | S3 | Ordered (CatBoost) / leave-one-out modes absent | P3 options. |

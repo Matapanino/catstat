@@ -36,9 +36,11 @@ plans.
   threaded through `_smoothing`/`_aggregations`; `backend="auto"` predicate + loud `gpu` errors.
 - ✅ CI workflow (`.github/workflows/ci.yml`); coverage 88.17%.
 - ✅ `scripts/colab_gpu_parity.{sh,py}`; `test_cpu_gpu_parity.py` (allclose, gpu-marked).
-- ⏳ **Colab validation** of the GPU path (strings/nulls/missing on device) + GPU baselines — run
-  `scripts/colab_gpu_parity.sh`. Until then `backend="gpu"` is written-but-unverified.
-- ⏳ Conversion-overhead benchmark → calibrate the `auto` cell threshold (needs GPU).
+- ✅ **Colab validation (T4, 2026-06-26)**: CPU/GPU allclose for mean/var × reg/bin/mc, transform +
+  fit_transform (max\|Δ\|~1e-14). `backend="gpu"`/`"auto"` validated for single-column numeric/string
+  keys. (`docs/verdicts/2026-06-26-gpu-parity-verdict.md`.)
+- ⏳ Validate on device: missing-as-value/cuDF nulls + `combination` (currently forced to CPU).
+- ⏳ Conversion-overhead / CPU-vs-GPU crossover benchmark → calibrate the `auto` cell threshold.
 - ⏳ Vectorize combination joint-key construction (currently a Python loop).
 
 ## Phase 3 — advanced — planned
@@ -51,14 +53,13 @@ plans.
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
   unknown/missing + names → count/frequency → sklearn compat → harness) landed together in the
   **M0 bootstrap (2026-06-26)**.
-- ✅ **Phase 2 (CPU + scaffold)** landed 2026-06-26: var/std/median/min/max, combination mode,
-  GPU backend (`backends/_gpu.py`), CI workflow, Colab parity scripts, `git init`.
-- **Phase 2 — remaining.** Run `scripts/colab_gpu_parity.sh` to validate/harden the GPU path on a
-  T4 (strings/nulls/missing-as-value on device), record GPU baselines, and calibrate the
-  `backend="auto"` cell threshold from the conversion-overhead benchmark.
+- ✅ **Phase 2 (CPU + GPU validated)** 2026-06-26: var/std/median/min/max, combination mode,
+  GPU backend `backends/_gpu.py` **validated CPU/GPU-allclose on a Colab T4**, CI, Colab loop, `git`.
+- **Phase 2 — remaining.** Validate missing/nulls + `combination` on device; add a CPU-vs-GPU
+  crossover benchmark to calibrate the `backend="auto"` threshold.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** Run `scripts/colab_gpu_parity.sh` on a Colab T4 to validate the GPU backend
-> (CPU/GPU allclose) and commit the GPU baselines + the downloaded `docs/verdicts/` report. Then
-> harden any device-side gaps it surfaces (cuDF string/null handling). After that, Phase 3.
+> **Next task:** Either (a) extend `scripts/colab_gpu_parity.py` with a missing-as-value + a
+> CPU-vs-GPU timing case and re-run on T4 to close KI-018 and calibrate the `auto` threshold, or
+> (b) start Phase 3 (quantile/skew/custom aggregations).

@@ -38,4 +38,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   threading. GPU path written, **Colab-validation pending** (no local GPU).
 - Verdict: docs/verdicts/2026-06-26-phase2-stats-gpu-verdict.md
 
+## 2026-06-26 — GPU backend CPU/GPU parity validated on Colab T4
+- Hypothesis: `backends/_gpu.py` (cuDF/CuPy, host-orchestrated, catstat-owned folds) produces the
+  same encodings as CPU to allclose.
+- Setup: Colab T4, Python 3.12.13, RAPIDS (cudf-cu12); n=200k × 5k cats, cv=5, seed=0;
+  `scripts/colab_gpu_parity.sh`.
+- Result: KEEP — all 4 cases allclose (mean/var × reg/bin/mc), transform + fit_transform,
+  max|Δ|~1e-14. backend_gpu="gpu" confirmed.
+- Verdict: docs/verdicts/2026-06-26-gpu-parity-verdict.md (+ harness report + JSONL artifact).
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

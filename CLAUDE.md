@@ -40,9 +40,11 @@ has no principled rule.
 `TargetEncoder` (supervised, cross-fitted, `stats=[...]`), `CountEncoder` /
 `FrequencyEncoder` (unsupervised), over a shared private `_BaseStatEncoder`. Key params:
 `cols, stats, target_type, smooth, cv, scheme, shuffle, random_state, handle_unknown,
-handle_missing, multi_feature_mode, min_samples_category, backend, output`. `stats` accepts
-built-ins + `(name, callable)` custom aggregations; `scheme ∈ {kfold, loo, ordered}` selects how
-the mean is cross-fitted (loo/ordered are mean-only). See
+handle_missing, multi_feature_mode, min_samples_category, backend, output, numeric,
+cardinality_threshold, n_bins, binning`. `stats` accepts built-ins + `(name, callable)` custom
+aggregations; `scheme ∈ {kfold, loo, ordered}` selects how the mean is cross-fitted (loo/ordered are
+mean-only); `numeric ∈ {ignore, auto, direct, bin}` (default `ignore`, TargetEncoder only) opts
+numeric columns into direct/binned target encoding (edges from X only; bins target-encoded OOF). See
 `docs/proposals/target-encoder-library-design.md` §3.
 
 ## Code map (target layout — build to this)
@@ -57,6 +59,7 @@ src/catstat/
   _stats.py              # stat registry (agg, smoothing policy, class-expanded?, fallback)
   _smoothing.py          # m-estimate + empirical-Bayes (mean/prob only)
   _cross_fit.py          # deterministic folds (CPU==GPU) + OOF orchestration
+  _numeric.py            # numeric-col encoding: cardinality routing + X-only quantile bin edges
   _validation.py, _feature_names.py, _typing.py
   backends/
     _dispatch.py         # backend="auto" predicate + 4-primitive interface

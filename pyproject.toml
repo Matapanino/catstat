@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "catstat"
-version = "0.1.1"
+version = "0.2.0"
 description = "Unified CPU/GPU statistical categorical encoding: leakage-safe target encoding generalized to arbitrary statistics, with one sklearn-compatible API."
 readme = "README.md"
 requires-python = ">=3.10"

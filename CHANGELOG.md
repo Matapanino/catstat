@@ -3,6 +3,23 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.0] — 2026-06-26
+
+### Added
+- **Opt-in, cardinality-aware numeric-column target encoding** on `TargetEncoder`, via a new
+  `numeric` parameter (default `"ignore"` keeps existing behavior — `cols="auto"` still skips
+  numeric columns). `"auto"` routes each numeric column by cardinality: at most
+  `cardinality_threshold` distinct values are encoded **directly** (each value its own category),
+  higher-cardinality columns are **binned** into `n_bins` (`binning="quantile"` equal-frequency by
+  default, or `"uniform"` equal-width) and the bins are target-encoded. `"direct"`/`"bin"` force one
+  strategy. Bin **edges are computed from feature values only** (never `y`), once from the full
+  training data, so the per-bin encoding stays out-of-fold and CPU/GPU parity is preserved.
+  `cardinality_threshold` accepts an int (absolute unique count) or a float in (0, 1] (unique/n
+  ratio). New fitted attributes `numeric_cols_`, `numeric_strategy_`, `bin_edges_`; output column
+  names are unchanged (`col__te_mean`). Defaults (`cardinality_threshold=10`, `n_bins=10`) are set by
+  an empirical CV verdict (`docs/verdicts/2026-06-26-numeric-te-verdict.md`): downstream 5-fold CV
+  R² rises from 0.03 (raw numerics) to 0.91 on a synthetic non-linear/categorical benchmark.
+
 ## [0.1.1] — 2026-06-26
 
 ### Changed

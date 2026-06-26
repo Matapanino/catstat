@@ -184,4 +184,16 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   maintainer-only (a public-hosting config change).
 - Verdict: n/a (release execution; see docs/verdicts/2026-06-26-release-automation-verdict.md).
 
+## 2026-06-26 — opt-in cardinality-aware numeric-column target encoding (0.2.0)
+- Hypothesis: routing numeric columns by cardinality (low → direct categories, high → quantile bins)
+  then target-encoding them — with bin edges from X only — beats passing raw numerics to a
+  downstream linear model, inside one leakage-safe encoder (a confirmed gap; see the prior-art note).
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; `scripts/check.sh`; `benchmarks/eval_numeric.py`
+  synthetic playground regression (non-linear + categorical numeric signal), Ridge 5-fold CV, 5 seeds.
+- Result: KEEP + CHANGE-DEFAULT — CV R² 0.034 (raw) → 0.910 (auto, n_bins=10) → ~0.94 (n_bins=20/40,
+  diminishing returns); binned OOF reconstruction exact, noise-trap OOF corr 0.069 (leaky 0.190),
+  edges ⊥ y; 116 passed; defaults set to n_bins=10 / cardinality_threshold=10. leakage-audit +
+  sklearn-compat PASS. Prior art: docs/notes/2026-06-26-numeric-te-prior-art.md.
+- Verdict: docs/verdicts/2026-06-26-numeric-te-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

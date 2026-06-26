@@ -83,5 +83,7 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   runs on **sklearn 1.9.0** (latest) — no newer-sklearn compat issues. Upload/tag deferred to
   the maintainer.
 - Verdict: docs/verdicts/2026-06-26-release-0.1.0-verdict.md
+- Published: GitHub Matapanino/catstat (public) — `main` + tag `v0.1.0` + release pushed
+  2026-06-26. PyPI upload pending the maintainer's token (twine can't prompt in the sandbox).
 
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

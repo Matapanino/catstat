@@ -69,6 +69,7 @@ builds and `twine check` passes. PyPI upload + API docs are the remaining mainta
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** 0.1.0 is build-verified and ready to ship — the maintainer runs `twine upload` +
-> `git tag v0.1.0` (see `docs/publishing_checklist.md`). Optional follow-ups: API docs (pdoc),
-> estimator-check hardening, and the GPU on-device perf redesign (KI-020).
+> **Next task:** 0.1.0 is published on GitHub (Matapanino/catstat — `main`, tag `v0.1.0`, and a
+> release). The only remaining publish step is `twine upload dist/*` to **PyPI** (needs the
+> maintainer's API token; run locally — see `docs/publishing_checklist.md`). Optional follow-ups:
+> API docs (pdoc), estimator-check hardening, and the GPU on-device perf redesign (KI-020).

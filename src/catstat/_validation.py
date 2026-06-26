@@ -66,18 +66,37 @@ def _is_categorical_like(dtype) -> bool:
     return string_dtype is not None and isinstance(dtype, string_dtype)
 
 
-def select_cols(Xdf: pd.DataFrame, cols) -> list:
+def _is_numeric_like(dtype) -> bool:
+    """Whether a column dtype is a (non-boolean) numeric dtype eligible for numeric encoding.
+
+    bool is excluded: it is already effectively categorical (two levels) and is not meaningfully
+    binned. datetimes are not numeric here either (``is_numeric_dtype`` is False for them).
+    """
+    is_num = pd.api.types.is_numeric_dtype(dtype)
+    return bool(is_num) and not bool(pd.api.types.is_bool_dtype(dtype))
+
+
+def select_cols(Xdf: pd.DataFrame, cols, numeric_mode: str = "ignore") -> list:
     """Resolve the ``cols`` parameter to a concrete list of column labels.
 
-    ``"auto"``/``None`` selects object, pandas ``category``, and pandas string-dtype columns. A
-    list may hold column labels or positional integers (handy for numpy input).
+    ``"auto"``/``None`` selects object, pandas ``category``, and pandas string-dtype columns -- and,
+    when ``numeric_mode`` is not ``"ignore"``, (non-boolean) numeric columns as well, preserving the
+    input column order. A list may hold column labels or positional integers (handy for numpy
+    input); explicit lists are taken verbatim regardless of ``numeric_mode``.
     """
     if cols == "auto" or cols is None:
-        selected = [c for c in Xdf.columns if _is_categorical_like(Xdf[c].dtype)]
+
+        def _keep(dtype) -> bool:
+            if _is_categorical_like(dtype):
+                return True
+            return numeric_mode != "ignore" and _is_numeric_like(dtype)
+
+        selected = [c for c in Xdf.columns if _keep(Xdf[c].dtype)]
         if not selected:
             raise ValueError(
-                "cols='auto' found no object/category columns to encode. Pass cols=[...] "
-                "explicitly (e.g. integer-coded categoricals are not auto-selected)."
+                "cols='auto' found no columns to encode. Pass cols=[...] explicitly "
+                "(object/category/string columns are auto-selected; numeric columns are "
+                "auto-selected only when numeric is enabled)."
             )
         return selected
 

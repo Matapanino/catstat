@@ -17,6 +17,15 @@ class TargetEncoder(_BaseStatEncoder):
     ``"ordered"`` (CatBoost-style ordered target statistics). ``loo``/``ordered`` apply to the mean
     only (use with ``stats=["mean"]``, optionally plus count/frequency).
 
+    ``numeric`` opts numeric columns into encoding (default ``"ignore"`` keeps today's behavior:
+    ``cols="auto"`` skips numerics). ``"auto"`` routes each numeric column by cardinality -- at most
+    ``cardinality_threshold`` distinct values are encoded **directly** (each value a category),
+    otherwise the column is **binned** into ``n_bins`` (``binning="quantile"`` equal-frequency, or
+    ``"uniform"`` equal-width) and the bins are target-encoded; ``"direct"``/``"bin"`` force one
+    strategy. Bin edges come from feature values only (never ``y``), so the per-bin encoding stays
+    out-of-fold. ``cardinality_threshold`` accepts an int (absolute unique count) or a float in
+    (0, 1] (unique/n ratio). Inspect the fitted ``numeric_strategy_`` / ``bin_edges_`` attrs.
+
     Parameters mirror ``docs/proposals/target-encoder-library-design.md`` §3.
     """
 
@@ -36,6 +45,10 @@ class TargetEncoder(_BaseStatEncoder):
         min_samples_category=1,
         backend="auto",
         output="auto",
+        numeric="ignore",
+        cardinality_threshold=10,
+        n_bins=10,
+        binning="quantile",
     ):
         self.cols = cols
         self.stats = stats
@@ -51,6 +64,10 @@ class TargetEncoder(_BaseStatEncoder):
         self.min_samples_category = min_samples_category
         self.backend = backend
         self.output = output
+        self.numeric = numeric
+        self.cardinality_threshold = cardinality_threshold
+        self.n_bins = n_bins
+        self.binning = binning
 
     def _is_supervised(self) -> bool:
         return True

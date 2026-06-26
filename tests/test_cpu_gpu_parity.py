@@ -32,3 +32,29 @@ def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
     b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
     assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+
+@pytest.mark.parametrize("numeric", ["auto", "bin"])
+def test_cpu_gpu_parity_numeric(numeric):  # pragma: no cover - GPU only
+    """Numeric TE parity: bin edges are host-side numpy (deterministic), so the bin ids are
+    identical on both backends and the per-bin encodings must agree at allclose. ``"auto"`` also
+    exercises the direct path (the low-cardinality column routes to direct)."""
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(1)
+    n = 200_000
+    lc = rng.integers(0, 8, size=n)  # low cardinality -> "direct" under "auto"
+    hc = rng.normal(size=n)  # high cardinality continuous -> "bin"
+    y = rng.normal(size=n)
+    X = pd.DataFrame({"lc": lc, "hc": hc})
+
+    kw = dict(cols=["lc", "hc"], numeric=numeric, n_bins=20, cv=5, random_state=0, output="numpy")
+    a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
+    b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
+    assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-8)
+
+    a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
+    b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
+    assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)

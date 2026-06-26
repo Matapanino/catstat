@@ -74,4 +74,14 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   non-mean+scheme raises. Bug found+fixed: ordered with smooth=0 gave a=0 → 0/0 nan; default a=1.
 - Verdict: docs/verdicts/2026-06-26-phase3b-loo-ordered-verdict.md
 
+## 2026-06-26 — Phase 3c (polars output) + release prep (0.1.0)
+- Hypothesis: `output="polars"` can be added via lazy import; the package is release-ready.
+- Setup: polars 1.35.2 locally; `python -m build` + `twine check`; clean-venv wheel install.
+- Result: KEEP — `output="polars"` returns a polars DataFrame (88 passed / 2 GPU-skipped).
+  Version bumped 0.0.1→0.1.0 (pyproject + __init__ in sync); LICENSE/CHANGELOG/checklist/skill
+  added. Build verified: sdist+wheel build, twine check PASSED, clean-venv install imports and
+  runs on **sklearn 1.9.0** (latest) — no newer-sklearn compat issues. Upload/tag deferred to
+  the maintainer.
+- Verdict: docs/verdicts/2026-06-26-release-0.1.0-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

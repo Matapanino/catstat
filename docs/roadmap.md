@@ -1,8 +1,9 @@
 # `catstat` Roadmap
 
-This roadmap is **honest about status**. **M0 (MVP) shipped 2026-06-26**: the CPU library, tests,
-and benchmark harness exist and are green on `scripts/check.sh`. Phase 2 (GPU) and Phase 3 remain
-plans.
+This roadmap is **honest about status**. As of **2026-06-26** the library is **release-ready at
+0.1.0**: M0 + Phase 2 (GPU validated; auto-GPU disabled pending perf) + Phase 3 (skew/custom stats,
+loo/ordered schemes, polars output) are implemented and green on `scripts/check.sh`; the package
+builds and `twine check` passes. PyPI upload + API docs are the remaining maintainer steps.
 
 > `MVP / Phase 2 / Phase 3` are **capability tiers**, not package versions.
 
@@ -50,8 +51,12 @@ plans.
   callables; `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
 - ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
   modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
-- ⏳ `set_output("polars")`, advanced metadata routing, estimator-check hardening.
-- ⏳ PyPI release + API docs; self-improvement-loop hardening.
+- ✅ **Phase 3c**: `output="polars"` (returns a polars DataFrame; lazy import, optional dep).
+  `test_polars.py`.
+- ✅ **Release prep (0.1.0)**: `LICENSE`, `CHANGELOG.md`, version bump (pyproject + `__init__` in
+  sync), `docs/publishing_checklist.md`, `release-prep` skill. **Build verified** — sdist + wheel
+  build, `twine check` passes, clean-venv install imports on sklearn 1.9. Upload/tag = maintainer.
+- ⏳ Advanced metadata routing, estimator-check hardening, API docs (pdoc), the actual PyPI upload.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -64,6 +69,6 @@ plans.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** Phase 3 wrap-up — `set_output("polars")` (polars is installed) + estimator-check
-> hardening, then **PyPI release prep** (version, CHANGELOG, docs, `release-prep` skill). (Phase 2
-> GPU perf parked under KI-020.)
+> **Next task:** 0.1.0 is build-verified and ready to ship — the maintainer runs `twine upload` +
+> `git tag v0.1.0` (see `docs/publishing_checklist.md`). Optional follow-ups: API docs (pdoc),
+> estimator-check hardening, and the GPU on-device perf redesign (KI-020).

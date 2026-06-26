@@ -27,8 +27,8 @@ from ._validation import (
 from .backends import _cpu
 from .backends._dispatch import select_backend
 
-_VALID_OUTPUT = ("auto", "numpy", "pandas")
-_DEFERRED_OUTPUT = ("cudf", "cupy", "polars")
+_VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
+_DEFERRED_OUTPUT = ("cudf", "cupy")
 
 
 class _BaseStatEncoder(TransformerMixin, BaseEstimator):
@@ -338,6 +338,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if self.output == "pandas":
             idx = Xdf.index if was_df else None
             return pd.DataFrame(arr, columns=self.feature_names_out_, index=idx)
+        if self.output == "polars":
+            try:
+                import polars as pl
+            except ImportError as e:  # pragma: no cover - exercised only without polars
+                raise ImportError("output='polars' requires polars (pip install polars).") from e
+            return pl.from_numpy(arr, schema=list(self.feature_names_out_))
         # "auto": mirror the input container
         if was_df:
             return pd.DataFrame(arr, columns=self.feature_names_out_, index=Xdf.index)

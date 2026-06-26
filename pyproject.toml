@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "catstat"
-version = "0.0.1"
+version = "0.1.0"
 description = "Unified CPU/GPU statistical categorical encoding: leakage-safe target encoding generalized to arbitrary statistics, with one sklearn-compatible API."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,9 +30,11 @@ dependencies = [
 gpu = ["cudf-cu12>=24.2", "cupy-cuda12x>=12"]
 # Benchmark + parity comparison tooling (kept out of src/).
 bench = ["scikit-learn>=1.4"]
+# output="polars" support (optional; numpy/pandas always work).
+polars = ["polars>=0.20"]
 # API reference generation.
 docs = ["pdoc>=14"]
-dev = ["pytest>=7.0", "pytest-cov>=4", "ruff>=0.4"]
+dev = ["pytest>=7.0", "pytest-cov>=4", "ruff>=0.4", "polars>=0.20", "build>=1.0"]
 
 [project.urls]
 Homepage = "https://github.com/Matapanino/catstat"

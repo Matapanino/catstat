@@ -11,4 +11,4 @@ from .frequency_encoder import FrequencyEncoder
 from .target_encoder import TargetEncoder
 
 __all__ = ["TargetEncoder", "CountEncoder", "FrequencyEncoder", "__version__"]
-__version__ = "0.0.1"
+__version__ = "0.1.0"

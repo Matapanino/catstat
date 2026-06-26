@@ -14,7 +14,13 @@ from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_is_fitted
 
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
-from ._cross_fit import loo_encode, make_folds, ordered_encode, resolve_cv
+from ._cross_fit import (
+    kfold_mean_oof_fast,
+    loo_encode,
+    make_folds,
+    ordered_encode,
+    resolve_cv,
+)
 from ._feature_names import build_columns
 from ._numeric import apply_numeric_col, fit_numeric_plan
 from ._smoothing import fit_mean_encoding
@@ -391,10 +397,56 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
         folds = make_folds(Xdf.shape[0], y_arr, splitter)
+        # Fast path: when every target-dependent column is a mean and the CV partitions the rows,
+        # compute all folds' out-of-fold means in one pass via complement subtraction instead of
+        # re-fitting a group-by per fold. Mathematically identical (allclose; leakage-audited).
+        if all(m.stat == "mean" for m in self._columns_meta if m.target_dependent):
+            fold_id = self._partition_fold_id(folds, Xdf.shape[0])
+            if fold_id is not None:
+                return self._kfold_oof_mean_fast(Xdf, y_arr, shape, fold_id, len(folds))
         oof = np.full(shape, np.nan)
         for tr, te in folds:
             tbl = self._fit_all(Xdf.iloc[tr], y_arr[tr])
             oof[te, :] = self._transform_array(Xdf.iloc[te], tbl)
+        return oof
+
+    @staticmethod
+    def _partition_fold_id(folds, n):
+        """Integer fold-id per row if the folds partition ``[0, n)`` (each row in exactly one test
+        fold), else ``None``. ``KFold``/``StratifiedKFold`` partition; arbitrary user CV may not, so
+        the fast path is gated on this and otherwise falls back to the per-fold loop."""
+        fold_id = np.full(n, -1, dtype=np.int64)
+        for f, (_tr, te) in enumerate(folds):
+            te = np.asarray(te)
+            if (fold_id[te] >= 0).any():  # overlapping test folds -> not a partition
+                return None
+            fold_id[te] = f
+        if (fold_id < 0).any():  # some row in no test fold -> not a partition
+            return None
+        return fold_id
+
+    def _kfold_oof_mean_fast(self, Xdf, y_arr, shape, fold_id, n_folds):
+        """Vectorized OOF for the mean columns via :func:`kfold_mean_oof_fast` (keys built once per
+        unit, reused across a unit's class columns)."""
+        oof = np.full(shape, np.nan)
+        key_cache: dict = {}
+        for j, meta in enumerate(self._columns_meta):
+            if not (meta.target_dependent and meta.stat == "mean"):
+                continue
+            feat = meta.feature
+            if feat not in key_cache:
+                key_cache[feat] = self._unit_keys(Xdf, self._unit_cols[feat])
+            keys, missing_mask = key_cache[feat]
+            oof[:, j] = kfold_mean_oof_fast(
+                keys,
+                missing_mask,
+                self._mean_y_vector(y_arr, meta),
+                fold_id,
+                n_folds,
+                self.smooth,
+                self.handle_missing,
+                self.handle_unknown,
+            )
         return oof
 
     def _mean_y_vector(self, y_arr, meta):

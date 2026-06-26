@@ -75,8 +75,9 @@ Trusted-Publisher setup remain the maintainer's.
 - ✅ **sklearn-compat hardening (0.1.1)**: documented `check_estimator` subset
   (`tests/test_check_estimator.py`, sklearn ≥ 1.6) — applicable checks pass, inapplicable ones waived
   with reasons (KI-012); fixed estimator pickling (cached backend module → `__getstate__`/`__setstate__`).
-- ⏳ Project hygiene (CONTRIBUTING, SECURITY, issue/PR templates); then the maintainer's one-time
-  PyPI Trusted-Publisher setup + Pages enablement + `v0.1.1` tag.
+- ✅ **Project hygiene (0.1.1)**: `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue + PR templates.
+- ⏳ **Maintainer-only:** configure the PyPI Trusted Publisher + enable GitHub Pages, then tag
+  `v0.1.1` → auto-publish. v0.1.0's own PyPI upload is separate. (KI-020 GPU perf is optional.)
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -94,6 +95,8 @@ Trusted-Publisher setup remain the maintainer's.
 > GitHub Pages). ✅ sklearn tags + sklearn-compat hardening (documented `check_estimator` subset,
 > KI-012; estimator pickling fixed). ✅ Fixed two pre-existing blockers: CI green (pytest
 > `pythonpath`, KI-021) and pandas 3.0 (`cols="auto"` StringDtype, KI-022) — **CI is now green**.
-> **Next:** project-hygiene files (CONTRIBUTING, SECURITY, issue/PR templates). Maintainer: PyPI
-> Trusted-Publisher + Pages enablement + `v0.1.1` tag; v0.1.0's PyPI upload remains the maintainer's;
-> the GPU on-device perf redesign (KI-020) is the larger optional follow-up.
+> ✅ project-hygiene files (CONTRIBUTING, SECURITY, issue/PR templates). **Arc complete; CI green.**
+> **Remaining = maintainer-only:** configure the PyPI Trusted Publisher and enable GitHub Pages
+> (Settings → Pages → GitHub Actions), then `git tag v0.1.1 && git push origin v0.1.1` to
+> auto-publish (v0.1.0's own PyPI upload is separate). Optional larger follow-up: KI-020 GPU
+> on-device perf — needs a fresh Colab crossover verdict before re-enabling `auto`.

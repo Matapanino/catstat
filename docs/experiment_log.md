@@ -165,4 +165,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   Local green (subset skips on 1.2); venv full suite 93 passed / 3 skipped. KI-012 downgraded S2→S3.
 - Verdict: docs/verdicts/2026-06-26-check-estimator-subset-verdict.md
 
+## 2026-06-26 — project hygiene (CONTRIBUTING, SECURITY, issue/PR templates)
+- Hypothesis: standard contributor-facing files round out the public release without touching code.
+- Setup: added CONTRIBUTING.md, SECURITY.md, .github/ISSUE_TEMPLATE/{bug_report,feature_request}.md
+  + config.yml, .github/PULL_REQUEST_TEMPLATE.md. Meta only (outside ruff/pytest paths).
+- Result: KEEP — green gate unaffected (`scripts/check.sh` green); config.yml parses. This closes
+  the 0.1.1 release-polish arc; remaining steps (PyPI Trusted-Publisher config, Pages enablement,
+  `v0.1.1` tag) are maintainer-only.
+- Verdict: docs/verdicts/2026-06-26-project-hygiene-verdict.md
+
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->

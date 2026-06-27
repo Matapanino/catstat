@@ -1,10 +1,10 @@
 # `catstat` Roadmap
 
-This roadmap is **honest about status**. As of **2026-06-26** **0.1.1 is released on PyPI**: M0 +
+This roadmap is **honest about status**. As of **2026-06-27** **0.4.0 is released on PyPI**: M0 +
 Phase 2 (GPU validated; auto-GPU disabled pending perf) + Phase 3 (skew/custom stats, loo/ordered
-schemes, polars output), CI green on Python 3.10–3.12 / pandas 1.5–3.0. **0.2.0 adds opt-in,
-cardinality-aware numeric-column target encoding** (implemented + green on `scripts/check.sh`,
-verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven (Trusted Publishing).
+schemes, polars output) + the **numeric-encoding arc** — cardinality-aware numeric *target* encoding
+(0.2.0), then `Count`/`Frequency` binning + explicit/per-column bin edges + `min_bin_size` (0.4.0).
+CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Trusted Publishing).
 
 > `MVP / Phase 2 / Phase 3` are **capability tiers**, not package versions.
 
@@ -163,12 +163,14 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > ~parity at ≥5M (0.93×@1M, 1.22×@5M, 1.07×@10M), so `auto` **stays off** and PR-D is a niche lever
 > (KI-020). **Maintainer carryover:** `0.2.0` and **`0.3.0` are released** (`v0.3.0` tagged + pushed,
 > `refs/tags/v0.3.0` → `83d7d74`; Trusted Publishing fires on the tag). ✅ GitHub Pages enabled.
-> **0.4.0 features so far (unreleased, accumulating before a release):** (1) `Count`/`Frequency`
-> numeric binning (KI-030, merged `feat/numeric-count-frequency`) — per-bin count / normalized-
-> histogram frequency; (2) **explicit / per-column bin edges** (`binning=` edge array or
-> `{col: strategy-or-edges}` dict, merged `feat/numeric-explicit-bin-edges`); (3) **`min_bin_size`**
-> (merge sparse computed bins from X, branch `feat/numeric-min-bin-size`). All reuse the shared
-> `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`. The
-> **numeric follow-ups are complete**. **Next:** cut **0.4.0** (`release-prep`: version bump +
-> CHANGELOG `[Unreleased]`→`[0.4.0]`) when ready, or add more features; **PR-D** (GPU on-device)
-> stays a niche lever with `auto` off (KI-020).
+> **`0.4.0` is RELEASED on PyPI (2026-06-27)** — the **numeric-encoding arc**: (1) `Count`/`Frequency`
+> numeric binning (KI-030, #12) — per-bin count / normalized-histogram frequency; (2) **explicit /
+> per-column bin edges** (`binning=` edge array or `{col: strategy-or-edges}` dict, #13); (3)
+> **`min_bin_size`** (merge sparse computed bins from X, #14). All reuse the shared `_numeric.py` path
+> with the cross-fit untouched; each shipped `/sklearn-compat` + `/leakage-audit` green. `v0.4.0`
+> tagged + pushed → Trusted Publishing built + uploaded the wheel/sdist (run succeeded, live on PyPI),
+> GitHub Release created. **Next candidates (no work started):** `smoothing="sigmoid"`
+> (category_encoders parity), optional Laplace add-α for frequency (default off), multiclass
+> `max_classes` (KI-016); or **PR-D** GPU on-device — niche, `auto` stays off (the 2026-06-27
+> crossover keeps GPU at ~parity only ≥5M; KI-020). **Ops nit:** Actions warn on Node 20 deprecation
+> (bump `actions/checkout@v4` etc.).

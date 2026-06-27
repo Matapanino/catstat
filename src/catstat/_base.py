@@ -177,8 +177,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._backend_mod, self.backend_ = select_backend(
             self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu
         )
-        # GPU can't run tuple keys (combination) or CPU-only stats (skew/custom) -> host only.
-        host_only = (not all_gpu) or any(len(cols) > 1 for _, cols in self._units)
+        # Combination/interaction units now key on int64 mixed-radix joint codes (host-built and
+        # GPU-groupable), so the device path handles them; only CPU-only stats (skew/custom, which
+        # have no GPU primitive) force host -> `not all_gpu`.
+        host_only = not all_gpu
         if self.backend_ == "gpu" and host_only:
             self._backend_mod, self.backend_ = _cpu, _cpu.NAME
 

@@ -7,10 +7,11 @@ therefore agree to ``allclose`` -- float reduction order differs). This is the c
 device group-by, host orchestration.
 
 Missing values: ``_validation.normalize_keys`` replaces NaN with the host ``MISSING`` sentinel
-(a Python object cuDF can't hold). Here we map that sentinel to a cuDF **null**, group with
-``dropna=False`` so the missing level is its own category, then map the null result-index entry
-back to ``MISSING`` so the host ``.map`` lines up. Combination units (tuple keys) are kept on CPU
-by the dispatcher and never reach this module.
+(a Python object cuDF can't hold). For single-column (object) keys we map that sentinel to a cuDF
+**null**, group with ``dropna=False`` so the missing level is its own category, then map the null
+result-index entry back to ``MISSING`` so the host ``.map`` lines up. **Combination/interaction
+units** arrive as **int64 joint codes** (host-built; a missing component is already folded into an
+ordinary integer code, so there is no sentinel) and group directly on the device.
 
 Imports cleanly on CPU-only boxes (``AVAILABLE`` is then ``False`` and nothing here runs).
 Validated on Colab (``scripts/colab_gpu_parity.sh``); there is no local GPU.
@@ -47,7 +48,14 @@ def ensure_available() -> None:
 
 
 def _to_nullable(keys: np.ndarray):
-    """Return ``(keys_or_copy, had_missing)`` with the host MISSING sentinel -> None (cuDF null)."""
+    """Return ``(keys_or_copy, had_missing)`` with the host MISSING sentinel -> None (cuDF null).
+
+    Only object key arrays (single-column / numeric string keys) can carry the sentinel; int64
+    joint-code keys (combination/interaction units) never do, so they pass straight through.
+    """
+    keys = np.asarray(keys)
+    if keys.dtype != object:
+        return keys, False
     from .._validation import MISSING
 
     mask = np.asarray(keys == MISSING, dtype=bool)

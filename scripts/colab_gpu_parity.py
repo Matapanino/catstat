@@ -77,6 +77,27 @@ def parity_cases():
     yield "numeric_auto", Xn, y_reg, {**num_base, "numeric": "auto"}  # direct(lc)+bin(hc)
     yield "numeric_bin", Xn, y_reg, {**num_base, "numeric": "bin"}
 
+    # combination / interactions: int64 mixed-radix joint codes (host-built, so identical on both
+    # backends -> only the device group-by differs). KI-018 unblock; includes a missing-component
+    # case (the missing-combo is folded into an ordinary int code, no MISSING sentinel on device).
+    a2 = rng.integers(0, 200, size=n).astype(str)
+    b2 = rng.integers(0, 200, size=n).astype(str)
+    Xc = pd.DataFrame({"a": a2, "b": b2})
+    comb = dict(cols=["a", "b"], multi_feature_mode="combination", cv=5, random_state=0)
+    yield "combination_mean", Xc, y_reg, {**comb, "stats": ["mean"]}
+    yield "combination_var", Xc, y_reg, {**comb, "stats": ["var"]}
+    am = a2.astype(object).copy()
+    am[rng.uniform(size=n) < 0.1] = np.nan
+    Xcm = pd.DataFrame({"a": am, "b": b2})
+    yield "combination_mean_missing", Xcm, y_reg, {
+        **comb,
+        "stats": ["mean"],
+        "handle_missing": "value",
+    }
+    yield "interactions_mean", Xc, y_reg, dict(
+        cols=["a", "b"], interactions=[["a", "b"]], stats=["mean"], cv=5, random_state=0
+    )
+
 
 def run_parity():
     import numpy as np

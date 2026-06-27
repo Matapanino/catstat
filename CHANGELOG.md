@@ -3,6 +3,38 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-06-27
+
+### Added
+- **Explicit interaction groups** via a new `interactions` parameter on `TargetEncoder`:
+  `interactions=[["a", "b"], ...]` adds **one joint target-encoded column per group** (additive to
+  the per-column `cols` encodings), generalizing `multi_feature_mode="combination"` (which encodes a
+  single joint column only). Out-of-fold cross-fitting, feature naming (`a+b__te_*`), and the
+  unknown/missing fallback all reuse the existing encoding-unit machinery.
+- **GPU `backend="gpu"` now supports `combination` / `interactions`** (joint units). They key on
+  int64 mixed-radix joint codes (built on the host, so identical on both backends) which the cuDF
+  group-by consumes directly; CPU/GPU `allclose` validated on a Colab T4 (mean/var, missing
+  component, interactions). Previously these were forced to the CPU.
+
+### Performance
+All performance work below is **output-identical** (allclose; leakage-audited) — no behavior or API
+change. The committed benchmark baseline is unchanged (it predates this arc; see the verdicts).
+- **Single-pass out-of-fold encoding** via complement subtraction for `mean` and `var`/`std`,
+  replacing the per-fold group-by loop (a shared per-`(fold, key)` moment builder; a hybrid gate
+  keeps `median`/`min`/`max`/`skew`/custom on the per-fold path). ~2.2–3.4× (mean), ~2.7–2.8×
+  (var/std).
+- **Factorize-once integer-code transform gather**: `transform` now hashes each unit's keys once
+  (`index.get_indexer`) and gathers each `(stat, class)` column from a contiguous `float64` array,
+  replacing the per-column `pd.Series.map`. transform ~2.3–3.4× (multi-stat / high-cardinality).
+- **Integer mixed-radix joint codes** for `combination` / `interactions` units, replacing the
+  per-row Python tuple build: combination transform ~3.7–4.4× / fit_transform ~1.5–2.4× at 1M rows.
+  (Closes KI-019.)
+
+### Changed
+- **GPU crossover re-measured** on a Colab T4 after the single-pass kernel: the host-orchestrated GPU
+  path reaches only ~parity at ≥5M rows (≈0.9× at 1M, ≈1.2× at 5M), so `backend="auto"` continues to
+  resolve to **CPU**; explicit `backend="gpu"` stays available and parity-validated. (KI-020.)
+
 ## [0.2.0] — 2026-06-26
 
 ### Added

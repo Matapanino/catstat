@@ -237,3 +237,27 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   NOT updated (it predates the perf arc).
 - Verdict: docs/verdicts/2026-06-27-transform-gather-verdict.md. Next lever: integer **joint** codes
   (`c_a*n_b+c_b`) → vectorize combination key-build (KI-019) + unblock GPU `combination` (KI-018).
+
+## 2026-06-27 — integer mixed-radix joint codes for `combination` (lever #2A, KI-019)
+- Hypothesis: a `combination` unit built its joint key as a Python object-array of **tuples** then
+  grouped/looked-up on tuple hashing (the last per-row Python loop, KI-019; also why GPU is host-only,
+  KI-018). Replacing the tuple with a vectorized mixed-radix **int64 joint code**
+  (`((c0*n1+c1)*n2+c2)…`), learned once from full X (value-stable per-component maps reused at
+  fit/fold/transform) and fed to the PR #7 gather, should be faster with no output change — the code
+  is a pure relabeling of the same row grouping. Unknown component → −1 sentinel (existing fallback);
+  `prod(n_c) > int64.max` → declines int path, falls back to tuple build.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; in-process **interleaved** per rep across three
+  `_unit_keys` impls — genexpr (original loop), zip (PR #2), intcode (new) — `make_multi_column`
+  (4 cols card-20, cv=5), n=200k (7 reps) & 1M (5 reps); `tests/test_joint_codes.py` (stable/distinct
+  codes, decode roundtrip, −1 sentinel, overflow fallback), new combination tests in
+  `test_multi_feature.py` (joint-unseen, missing value/return_nan, categories_ tuples, determinism),
+  combination OOF reconstruction in `test_cross_fit_no_leakage.py`; `/leakage-audit` + `/sklearn-compat`.
+- Result: KEEP — byte-identical output (max|Δ|=0.00e+00 at 200k & 1M across all three impls); at 1M
+  combination transform ×4.35 vs the loop / ×2.93 vs PR #2's zip, fit_transform ×2.42 / ×1.67 (win
+  grows with N); 180 passed, 8 skipped; ruff clean. Leakage PASS (OOF reconstruction max|Δ|=4.4e-16;
+  noise-trap OOF corr 0.06 vs leaky 0.84 for smooth=0 and "auto"; asymmetry 0.022>0). sklearn PASS
+  incl. pickle round-trip of `_unit_keyplans`; `categories_` decoded back to value tuples (unchanged
+  representation), feature names / §11 fallback / defaults unchanged. Committed baseline NOT updated.
+- Verdict: docs/verdicts/2026-06-27-integer-joint-codes-verdict.md. Closes KI-019, supersedes PR #2.
+  Next lever: **#2B GPU `combination`** (KI-018) — drop `host_only` combination clause + joint codes
+  in `_gpu.py`, **mandatory** Colab CPU/GPU parity.

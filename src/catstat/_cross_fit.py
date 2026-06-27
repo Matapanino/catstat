@@ -6,11 +6,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold, StratifiedKFold
+
+# A mixed-radix joint code lives in ``[0, prod(radices))``; beyond int64 we fall back to tuple keys.
+_INT64_MAX = int(np.iinfo(np.int64).max)
 
 
 class _PrecomputedSplitter:
@@ -141,6 +145,80 @@ def gather(values: np.ndarray, codes: np.ndarray, has_unknown: bool) -> np.ndarr
     out[known] = values[codes[known]]
     out[~known] = np.nan
     return out
+
+
+@dataclass(frozen=True)
+class _JointKeyPlan:
+    """Encode a ``combination`` unit's joint category as a single int64 code instead of a tuple.
+
+    A combination unit's category is the tuple of its components' (normalized) values. Rather than
+    materialize those tuples per row, each component is integer-coded once from the full training X
+    into a value-stable ``pd.Index`` (``uniques``); per row the component codes are folded into one
+    mixed-radix int64 ``joint = ((c0*n1 + c1)*n2 + c2)...``. The same combination then maps to the
+    same int at fit and at transform, so the existing code-gather (``index.get_indexer`` over an
+    ``Int64Index``) works unchanged. ``use_int`` is False when the radix product overflows int64 --
+    the caller then falls back to the object-tuple key build for that unit.
+    """
+
+    uniques: tuple  # one pd.Index per component (value-stable category map, incl. MISSING sentinel)
+    radices: tuple  # n_c (number of distinct categories) per component
+    use_int: bool
+
+
+def build_joint_keyplan(component_keys) -> _JointKeyPlan:
+    """Build a :class:`_JointKeyPlan` from each component's normalized key array (full training X).
+
+    ``component_keys`` is a list of object arrays already run through ``normalize_keys`` (missing
+    entries are the ``MISSING`` sentinel). Each is factorized to a value-stable ``pd.Index``; the
+    radix product is checked against int64 so the caller knows whether the int path is safe.
+    """
+    uniques = []
+    radices = []
+    product = 1
+    for keys in component_keys:
+        _codes, uniq = pd.factorize(keys)  # value-stable category map for this component
+        uniques.append(pd.Index(uniq))
+        radices.append(len(uniq))
+        product *= max(len(uniq), 1)
+    return _JointKeyPlan(tuple(uniques), tuple(radices), product <= _INT64_MAX)
+
+
+def joint_codes(plan: _JointKeyPlan, component_keys) -> np.ndarray:
+    """Mixed-radix int64 joint code per row from a unit's per-component normalized key arrays.
+
+    Each component value is mapped through its fit-time ``uniques`` (``get_indexer``: ``>= 0``
+    known, ``-1`` unknown). Any row with an unknown component is forced to the ``-1`` sentinel --
+    never a valid (non-negative) canonical code, so the downstream ``index.get_indexer`` returns -1
+    and the row takes the unknown/fallback path, like a tuple key absent from the encoding's index.
+    """
+    n = len(component_keys[0])
+    joint = np.zeros(n, dtype=np.int64)
+    unknown = np.zeros(n, dtype=bool)
+    for uniq, radix, keys in zip(plan.uniques, plan.radices, component_keys):
+        codes = uniq.get_indexer(keys)  # >= 0 known, -1 unknown (value absent from fit uniques)
+        unknown |= codes < 0
+        joint = joint * np.int64(radix) + codes.astype(np.int64)  # known rows stay in [0, product)
+    if unknown.any():
+        joint[unknown] = -1  # contaminated arithmetic above is overwritten here
+    return joint
+
+
+def decode_joint(plan: _JointKeyPlan, codes) -> list:
+    """Invert :func:`joint_codes` for canonical (non-negative) codes -> component-value tuples.
+
+    Used only to rebuild ``categories_`` in its tuple representation (O(#categories), not per-row).
+    """
+    codes = np.asarray(codes, dtype=np.int64)
+    k = len(plan.radices)
+    comp_codes = [None] * k
+    rem = codes.copy()
+    for c in range(k - 1, -1, -1):  # least-significant component first
+        radix = np.int64(plan.radices[c])
+        comp_codes[c] = rem % radix
+        rem //= radix
+    return [
+        tuple(plan.uniques[c][int(comp_codes[c][i])] for c in range(k)) for i in range(len(codes))
+    ]
 
 
 def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _OOFMoments:

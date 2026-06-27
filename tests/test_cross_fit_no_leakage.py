@@ -27,6 +27,36 @@ def test_oof_reconstruction_is_exact():
     assert np.nanmax(np.abs(oof - recon)) < 1e-9
 
 
+def test_oof_reconstruction_is_exact_combination():
+    # The joint-code path must be out-of-fold too: reconstruct each row from the mean over its
+    # (a, b) combination in the OTHER folds (tuple group-by, independent of the int joint codes).
+    rng = np.random.default_rng(7)
+    n = 1200
+    a = rng.integers(0, 4, n).astype(str)
+    b = rng.integers(0, 4, n).astype(str)  # 16 dense combos -> each present in every complement
+    X = pd.DataFrame({"a": a, "b": b})
+    y = a.astype(int) * b.astype(int) / 10.0 + rng.normal(0, 0.5, n)
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    oof = (
+        TargetEncoder(
+            cols=["a", "b"], multi_feature_mode="combination", smooth=0.0, cv=kf, output="numpy"
+        )
+        .fit_transform(X, y)
+        .ravel()
+    )
+
+    combo = list(zip(a, b))
+    recon = np.empty(n)
+    for tr, te in kf.split(X, y):
+        comp_mean = y[tr].mean()  # per-fold complement mean = the kernel's unseen-combo fallback
+        means = pd.DataFrame({"k": [combo[i] for i in tr], "y": y[tr]}).groupby("k")["y"].mean()
+        d = means.to_dict()
+        for i in te:
+            recon[i] = d.get(combo[i], comp_mean)
+    # allclose (not bitwise): the fast kernel derives complement stats by subtraction (invariant 2).
+    assert np.nanmax(np.abs(oof - recon)) < 1e-9
+
+
 def test_noise_category_does_not_leak():
     X, y = make_leakage_trap(n=2000, n_levels=1000, seed=3)
     oof = TargetEncoder(

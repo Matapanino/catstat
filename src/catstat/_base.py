@@ -17,11 +17,14 @@ from sklearn.utils.validation import check_is_fitted
 
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import (
+    build_joint_keyplan,
     complement_moments,
+    decode_joint,
     factorize_active,
     finalize_dispersion_oof,
     finalize_mean_oof,
     gather,
+    joint_codes,
     loo_encode,
     make_folds,
     ordered_encode,
@@ -122,6 +125,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             self._units = [(c, [c]) for c in self._cat_cols]
         self._unit_cols = dict(self._units)
         self._fit_numeric(Xdf, numeric_mode)
+        # Per-combination-unit int64 joint-code plan, learned once from full X (X-only, so
+        # leakage-safe) and reused at fit / per-fold / transform via _unit_keys.
+        self._unit_keyplans = self._build_joint_keyplans(Xdf)
         self._specs = self._resolve_stat_specs()
         self.stats_ = [s.name for s in self._specs]
 
@@ -182,7 +188,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         for meta in self._columns_meta:
             enc = self._fit_tables[self._key(meta)]
             self.global_stats_[meta.name] = enc.fallback
-            self.categories_.setdefault(meta.feature, np.asarray(list(enc.index), dtype=object))
+            if meta.feature in self.categories_:
+                continue
+            plan = self._unit_keyplans.get(tuple(self._unit_cols[meta.feature]))
+            # Combination units now hold an int64 canonical index -> decode back to category tuples
+            # so categories_ keeps its tuple representation (public API unchanged).
+            cats = decode_joint(plan, enc.index.to_numpy()) if plan is not None else list(enc.index)
+            self.categories_[meta.feature] = np.asarray(cats, dtype=object)
         self._set_target_mean()
         return self
 
@@ -332,12 +344,31 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             vc = vc / float(max(n_total, 1))
         return vc, 0.0
 
+    def _build_joint_keyplans(self, Xdf):
+        """Per-combination-unit :class:`~._cross_fit._JointKeyPlan` from full X (X-only labeling).
+
+        Each multi-column unit's components are integer-coded once into value-stable maps so a
+        combination yields the same int64 joint code at fit, per fold, and transform. Units whose
+        radix product overflows int64 are omitted -> :meth:`_unit_keys` falls back to tuple keys.
+        Keyed by ``tuple(cols)`` so ``_unit_keys`` (which holds ``cols``) can look the plan up.
+        """
+        plans = {}
+        for _feat, cols in self._units:
+            if len(cols) <= 1:
+                continue
+            comp_keys = [normalize_keys(self._col_values(Xdf, c))[0] for c in cols]
+            plan = build_joint_keyplan(comp_keys)
+            if plan.use_int:
+                plans[tuple(cols)] = plan
+        return plans
+
     def _unit_keys(self, Xdf, cols):
         """Return ``(keys, missing_mask)`` for an encoding unit.
 
-        A single-column unit uses the column's normalized keys directly. A combination unit uses
-        the tuple of its components' keys as one joint category; the row counts as missing if any
-        component is missing.
+        A single-column unit uses the column's normalized keys directly. A combination unit folds
+        its components into one joint key: a mixed-radix int64 code via the unit's fitted
+        :class:`~._cross_fit._JointKeyPlan` when present (fast, GPU-ready), else an object tuple per
+        row (overflow fallback). The row counts as missing if any component is missing.
         """
         if len(cols) == 1:
             return normalize_keys(self._col_values(Xdf, cols[0]))
@@ -347,9 +378,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             k, m = normalize_keys(self._col_values(Xdf, c))
             comp_keys.append(k)
             missing = missing | m
+        plan = getattr(self, "_unit_keyplans", {}).get(tuple(cols))
+        if plan is not None:
+            return joint_codes(plan, comp_keys), missing
+        # Overflow fallback: object tuple per row via a C-level zip (same MISSING-sentinel tuples).
         joint = np.empty(Xdf.shape[0], dtype=object)
-        for i in range(Xdf.shape[0]):
-            joint[i] = tuple(ck[i] for ck in comp_keys)
+        for i, key in enumerate(zip(*comp_keys)):
+            joint[i] = key
         return joint, missing
 
     # ---- transform ---------------------------------------------------------------------------

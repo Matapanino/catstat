@@ -82,8 +82,9 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 - ✅ **Project hygiene (0.1.1)**: `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue + PR templates.
 - ✅ **0.1.1 PUBLISHED (2026-06-26)**: `v0.1.1` tagged → release workflow built + published to PyPI
   via Trusted Publishing; `pip install catstat==0.1.1` verified in a clean venv; GitHub release created.
-- ⏳ **Maintainer-only:** enable GitHub Pages (Settings → Pages → GitHub Actions) so the Docs
-  workflow deploys the API site. (KI-020 GPU perf is the optional larger follow-up.)
+- ✅ **GitHub Pages enabled (2026-06-27)**: source = GitHub Actions; the Docs workflow now deploys
+  the API site to https://matapanino.github.io/catstat/ (the deploy step had been failing only
+  because Pages was off). (KI-020 GPU perf is the optional larger follow-up.)
 
 ## 0.2.0 — numeric-column target encoding — done ✅ (2026-06-26)
 - ✅ **Opt-in numeric TE** on `TargetEncoder` (`numeric="ignore"|"auto"|"direct"|"bin"` +
@@ -142,5 +143,8 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > port; all came from sklearn's integer-code path). **Next:** **PR-D** GPU on-device kernel + a fresh
 > crossover before re-enabling `auto` — but the 2026-06-27 crossover re-confirms GPU only reaches
 > ~parity at ≥5M (0.93×@1M, 1.22×@5M, 1.07×@10M), so `auto` **stays off** and PR-D is a niche lever
-> (KI-020). Maintainer carryover: tag `v0.2.0`; enable GitHub Pages; optional numeric binning for
-> `Count`/`Frequency` (KI-030).
+> (KI-020). **Maintainer carryover:** `0.2.0` is already on PyPI and **`0.3.0` is prepared** (version
+> bumped + CHANGELOG + build/twine/smoke verified, merged to main) — the maintainer tags to publish:
+> `git tag -a v0.3.0 -m "catstat 0.3.0" && git push origin v0.3.0` (Trusted Publishing fires on the
+> tag), then a GitHub release from the `[0.3.0]` notes. ✅ GitHub Pages enabled. **Next feature:**
+> `Count`/`Frequency` numeric binning (KI-030).

@@ -302,3 +302,15 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   `docs/verdicts/2026-06-27-gpu-parity-report.md`, `benchmarks/results/2026-06-27-T4-gpu-parity.jsonl`.
   Crossover re-confirms `auto` stays off (GPU ~parity only at ≥5M: 0.93×@1M, 1.22×@5M, 1.07×@10M;
   KI-020 unchanged). KEEP → merge `feat/perf-gpu-combination`.
+
+## 2026-06-27 — 0.3.0 release prep + GitHub Pages enabled (ops, not an experiment)
+- 0.2.0 is already on PyPI; `main` gained `interactions=` (new public param), the single-pass OOF
+  perf arc, integer joint codes, and GPU combination since — so the next release is **0.3.0** (minor:
+  backwards-compatible feature add). Bumped pyproject + `__init__` (in sync), wrote CHANGELOG
+  `[0.3.0]`; `python -m build` + `twine check` PASSED (sdist+wheel, `py.typed` present); clean-venv
+  install imports `0.3.0` and runs the new `interactions` path + CountEncoder. Merged via PR #10.
+  **Tag `v0.3.0` + publish is the maintainer's step** (Trusted Publishing fires on the tag).
+- **GitHub Pages enabled** (source = GitHub Actions, via `gh api`); the Docs workflow's deploy had
+  been failing only because Pages was off — re-ran it green, site live at
+  https://matapanino.github.io/catstat/. Action versions still warn on Node 20 deprecation (future
+  bump of `actions/checkout@v4` etc.).

@@ -71,5 +71,7 @@ literature-backed recommendation. No committed perf baseline (`baseline-cpu.json
 ## Follow-ups
 - ✅ GPU parity validated on T4 (2026-06-26): `numeric_auto`/`numeric_bin` CPU/GPU allclose
   (max|Δ| ~1e-17) after the string-key fix (cuDF rejects object-dtype int keys).
-- Numeric binning for `CountEncoder`/`FrequencyEncoder` (count/frequency of bins) — see KI-030.
+- ✅ Numeric binning for `CountEncoder`/`FrequencyEncoder` (count/frequency of bins) — **done
+  2026-06-27** (KI-030 resolved): reuses this numeric path on both unsupervised encoders, no
+  `_base.py` edit; `fit_transform == fit().transform()`. → 0.4.0.
 - Custom/explicit bin edges and a min-bin-size knob — `n_bins` + `min_samples_category` cover MVP.

@@ -174,3 +174,21 @@ def test_numeric_params_roundtrip_and_clone():
         assert clone(enc).get_params() == params
         enc.set_params(numeric="auto", n_bins=3)
         assert enc.numeric == "auto" and enc.n_bins == 3
+
+
+def test_numeric_explicit_edges_histogram():
+    X = _numeric_frame()
+    ce = CountEncoder(cols=["hc"], numeric="bin", binning=[-3.0, -1.0, 1.0, 3.0], output="numpy")
+    out = ce.fit_transform(X).ravel()
+    np.testing.assert_allclose(ce.bin_edges_["hc"], [-1.0, 1.0])  # 4 edges -> 3 bins
+    binid = np.clip(np.digitize(X["hc"].to_numpy(float), ce.bin_edges_["hc"]), 0, 2)
+    expected = pd.Series(binid).map(pd.Series(binid).value_counts()).to_numpy().astype(float)
+    assert np.allclose(out, expected)  # per-row count of its user-defined bin
+
+
+def test_numeric_explicit_edges_params_roundtrip():
+    for enc_cls in (CountEncoder, FrequencyEncoder):
+        enc = enc_cls(numeric="bin", binning=[0.0, 1.0, 2.0])
+        assert clone(enc).get_params()["binning"] == [0.0, 1.0, 2.0]
+        encd = enc_cls(numeric="auto", binning={"a": [0, 1, 2], "b": "uniform"})
+        assert clone(encd).get_params()["binning"] == {"a": [0, 1, 2], "b": "uniform"}

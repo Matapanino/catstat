@@ -336,3 +336,26 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   all-`object` after `prepare_X` so numeric auto-detection doesn't fire, and `bool` stays categorical.
 - Verdict: KEEP. No new perf/quality verdict needed (a histogram has no CV-quality claim, no default
   change). pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`. KI-030 **Resolved**.
+
+## 2026-06-27 — Explicit / per-column bin edges (`binning=` array|dict) — 0.4.0 feature #2
+- Goal: extend numeric binning so users can pass explicit bin boundaries (domain knowledge, e.g. age
+  `[0,18,65,120]`) instead of only quantile/uniform. API: widen the existing `binning` param to
+  accept an edge array (every binned col) or a `{col: strategy-or-edges}` dict — **no `__init__`
+  signature change** (the param already exists on all three encoders); confirmed with the user before
+  coding (chose "binning を拡張" over a separate `bin_edges=` param).
+- Design decision: `binning` controls *how* a column is binned; *whether* stays with `numeric` +
+  `cardinality_threshold` (predictable, no routing coupling). Explicit edges = full boundaries
+  (k+1 → k bins, interior `[1:-1]` for `np.digitize`, out-of-range clamps), and set the bin count so
+  `n_bins` is ignored for that column. Strict validation (≥2 finite, strictly-increasing edges; dict
+  keys must name numeric columns being encoded).
+- Change: `_numeric.py` (new `validate_binning` + per-column spec resolution) + `_base._validate_
+  numeric_params` (call the validator). **Cross-fit / transform / `_smoothing` untouched.** Docstrings
+  on TargetEncoder + CountEncoder widened. Branch `feat/numeric-explicit-bin-edges`.
+- Result: green gate PASS (ruff + **221 passed / 11 GPU-skipped** + examples); +20 tests
+  (`test_numeric_encoding.py` explicit/dict/validation; `test_count_frequency.py` histogram + param
+  round-trip). `/sklearn-compat` PASS — list **and** dict `binning` round-trip `clone`/`get_params`/
+  `set_params` on all 3 encoders, the cloned dict is a deep copy. `/leakage-audit` PASS — OOF
+  reconstruction exact incl. dict binning (max|Δ| 2.2e-16); explicit-edges noise-trap OOF corr 0.0004
+  vs leaky 0.108; edges ⊥ y.
+- Verdict: KEEP. No default changed, no new perf/quality verdict (no CV-quality claim). min-bin-size
+  is the remaining numeric follow-up (PR2). → 0.4.0.

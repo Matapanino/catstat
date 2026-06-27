@@ -248,3 +248,109 @@ def test_ignore_default_is_backward_compatible():
     out = enc.fit_transform(X, y)
     assert out.shape == (len(y), 1)
     assert enc.numeric_cols_ == []  # no special numeric handling under 'ignore'
+
+
+# ---- explicit / per-column bin edges (binning = edge array | dict) ----------------------------
+def test_explicit_edge_array_sets_the_bins():
+    X, y = make_numeric()
+    enc = TargetEncoder(cols=["hc"], numeric="bin", binning=[-2.0, -0.5, 0.5, 2.0],
+                        smooth=0.0, random_state=0, output="numpy").fit(X, y)
+    # full boundaries -> the outer two are dropped (np.digitize uses interior); 4 edges -> 3 bins
+    np.testing.assert_allclose(enc.bin_edges_["hc"], [-0.5, 0.5])
+    binid = np.clip(np.digitize(X["hc"].to_numpy(float), enc.bin_edges_["hc"]), 0, 2)
+    vals = enc.transform(X).ravel()
+    for b in np.unique(binid):  # each bin -> a single encoded value
+        v = vals[binid == b]
+        assert np.allclose(v, v[0])
+
+
+def test_explicit_edges_ignore_n_bins():
+    X, y = make_numeric()
+    enc = TargetEncoder(cols=["hc"], numeric="bin", binning=[-3.0, 0.0, 3.0], n_bins=99,
+                        smooth=0.0, random_state=0, output="numpy").fit(X, y)
+    np.testing.assert_allclose(enc.bin_edges_["hc"], [0.0])  # 3 edges -> 2 bins; n_bins ignored
+
+
+def test_explicit_out_of_range_clips_to_outer_bins():
+    X, y = make_numeric()
+    enc = TargetEncoder(cols=["hc"], numeric="bin", binning=[-1.0, 0.0, 1.0],
+                        smooth=0.0, random_state=0, output="numpy").fit(X, y)
+    out = enc.transform(pd.DataFrame({"hc": [-1e9, 1e9]})).ravel()
+    edge = enc.transform(pd.DataFrame({"hc": [-0.5, 0.5]})).ravel()  # inside the outer bins
+    assert np.isfinite(out).all()
+    np.testing.assert_allclose(out, edge)  # extrapolation clamps to the same outer bins
+
+
+def test_dict_binning_per_column_mixes_strategy_and_edges():
+    X, y = make_numeric()  # lc (low-card int), hc (continuous) -- both bin under numeric='bin'
+    enc = TargetEncoder(numeric="bin", binning={"hc": [-2.0, 0.0, 2.0], "lc": "uniform"},
+                        n_bins=4, smooth=0.0, random_state=0, output="numpy").fit(X, y)
+    np.testing.assert_allclose(enc.bin_edges_["hc"], [0.0])  # explicit -> 2 bins
+    le = enc.bin_edges_["lc"]
+    assert le.size == 3  # 'uniform' with n_bins=4 -> 3 interior edges
+    np.testing.assert_allclose(np.diff(le), le[1] - le[0])  # equal-width
+
+
+def test_dict_binning_missing_column_defaults_to_quantile():
+    X, y = make_numeric()
+    # the dict only mentions lc, so hc falls back to the default "quantile" strategy
+    via_dict = TargetEncoder(numeric="bin", binning={"lc": "uniform"}, n_bins=10,
+                             random_state=0).fit(X, y)
+    ref = TargetEncoder(cols=["hc"], numeric="bin", binning="quantile", n_bins=10,
+                        random_state=0).fit(X, y)
+    np.testing.assert_array_equal(via_dict.bin_edges_["hc"], ref.bin_edges_["hc"])
+
+
+def test_binning_controls_how_not_whether_under_auto():
+    X, y = make_numeric()  # lc: 5 distinct <= threshold -> 'direct' under numeric='auto'
+    enc = TargetEncoder(numeric="auto", cardinality_threshold=10,
+                        binning={"lc": [0.0, 2.0, 4.0]}, random_state=0).fit(X, y)
+    # binning is "how", not "whether": lc still routes to direct, its dict edges go unused
+    assert enc.numeric_strategy_["lc"] == "direct"
+    assert "lc" not in enc.bin_edges_
+
+
+def test_explicit_edges_oof_reconstruction_is_exact():
+    X, y = make_numeric(n=1600, seed=4)
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    enc = TargetEncoder(cols=["hc"], numeric="bin", binning=[-3.0, -1.0, 0.0, 1.0, 3.0],
+                        smooth=0.0, cv=kf, output="numpy")
+    oof = enc.fit_transform(X, y).ravel()
+    edges = enc.bin_edges_["hc"]
+    binid = np.clip(np.digitize(X["hc"].to_numpy(float), edges), 0, edges.size)
+    gmean = y.mean()
+    recon = np.empty(len(y))
+    for tr, te in kf.split(X, y):
+        means = pd.DataFrame({"b": binid[tr], "y": y[tr]}).groupby("b")["y"].mean()
+        for i in te:
+            recon[i] = means.get(binid[i], gmean)
+    assert np.nanmax(np.abs(oof - recon)) < 1e-9  # user edges -> OOF still exact (edges _|_ y)
+
+
+def test_explicit_binning_param_roundtrips_and_clones():
+    from sklearn.base import clone
+    enc = TargetEncoder(numeric="bin", binning=[0.0, 1.0, 2.0], random_state=0)
+    assert clone(enc).get_params()["binning"] == [0.0, 1.0, 2.0]
+    encd = TargetEncoder(numeric="auto", binning={"hc": [0, 1, 2], "lc": "uniform"}, random_state=0)
+    assert clone(encd).get_params()["binning"] == {"hc": [0, 1, 2], "lc": "uniform"}
+
+
+@pytest.mark.parametrize(
+    "binning",
+    [
+        [5],                  # < 2 edges
+        [3, 2, 1],            # not strictly increasing
+        [0, 0, 1],            # duplicate -> not strictly increasing
+        [0, np.nan, 1],       # non-finite
+        [[0, 1], [2, 3]],     # not 1-D
+        "kmeans",             # unknown strategy string
+        5,                    # scalar
+        {"hc": "kmeans"},     # dict: bad strategy
+        {"hc": [1]},          # dict: bad edges
+        {"nope": [0, 1, 2]},  # dict: unknown column
+    ],
+)
+def test_binning_validation_raises(binning):
+    X, y = make_numeric(n=200)
+    with pytest.raises(ValueError):
+        TargetEncoder(numeric="bin", binning=binning, random_state=0).fit(X, y)

@@ -109,6 +109,12 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   safety property is plain equivalence (`fit_transform == fit().transform()`). `numpy`-array input
   (all-object after `prepare_X`) and `bool` columns stay categorical, exactly as `TargetEncoder`.
   `tests/test_count_frequency.py` (12 numeric cases).
+- ✅ Explicit / per-column **bin edges** (KI-030 follow-up) — **done (2026-06-27, targets 0.4.0)**:
+  `binning` also accepts an edge array (`[0,18,65,120]` → 3 bins, applied to every binned column) or
+  a `{col: strategy-or-edges}` dict; explicit edges set the bin count (`n_bins` ignored), and
+  `binning` controls *how* not *whether* (routing stays with `numeric`+`cardinality_threshold`).
+  Logic isolated to `_numeric.py` (cross-fit untouched); OOF stays exact, sklearn-compat (list/dict
+  `clone`) + leakage-audit PASS. Branch `feat/numeric-explicit-bin-edges`. **Follow-up:** min-bin-size.
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -152,8 +158,10 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > ~parity at ≥5M (0.93×@1M, 1.22×@5M, 1.07×@10M), so `auto` **stays off** and PR-D is a niche lever
 > (KI-020). **Maintainer carryover:** `0.2.0` and **`0.3.0` are released** (`v0.3.0` tagged + pushed,
 > `refs/tags/v0.3.0` → `83d7d74`; Trusted Publishing fires on the tag). ✅ GitHub Pages enabled.
-> **Done since (first 0.4.0 feature):** `Count`/`Frequency` numeric binning (KI-030, branch
-> `feat/numeric-count-frequency`) — per-bin count / normalized-histogram frequency, reusing the
-> shared `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`.
-> **Next:** more 0.4.0 features or cut the 0.4.0 release; **PR-D** (GPU on-device) stays a niche lever
-> with `auto` off (KI-020).
+> **0.4.0 features so far (unreleased, accumulating before a release):** (1) `Count`/`Frequency`
+> numeric binning (KI-030, merged `feat/numeric-count-frequency`) — per-bin count / normalized-
+> histogram frequency; (2) **explicit / per-column bin edges** (`binning=` edge array or
+> `{col: strategy-or-edges}` dict, all three encoders, branch `feat/numeric-explicit-bin-edges`).
+> Both reuse the shared `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0
+> `release-prep`. **Next:** **min-bin-size knob** (merge sparse bins, from X — the remaining numeric
+> follow-up), then cut 0.4.0; **PR-D** (GPU on-device) stays a niche lever with `auto` off (KI-020).

@@ -8,9 +8,14 @@ unchanged. Two strategies:
   categorical). This is the identity transform: :func:`catstat._validation.normalize_keys` already
   treats raw values as category keys.
 * ``"bin"`` -- the value is discretized into a bin id using **bin edges computed from X only**
-  (quantile / equal-frequency by default, or equal-width). Edges are a function of feature values,
-  never the target, so computing them once from the full training data is leakage-safe; the
-  per-bin target statistic is still cross-fitted out-of-fold by the caller.
+  (quantile / equal-frequency by default, equal-width, or **user-supplied explicit edges** that
+  depend on nothing in the data at all). Computed edges are a function of feature values, never the
+  target, so deriving them once from the full training data is leakage-safe; explicit edges are
+  leakage-safe a fortiori. The per-bin target statistic is still cross-fitted out-of-fold by the
+  caller. ``binning`` selects the source: ``"quantile"``/``"uniform"`` (a strategy applied to every
+  binned column), a 1-D **edge array** (explicit boundaries for every binned column), or a
+  ``{column: strategy-or-edges}`` **dict** for per-column control. ``binning`` governs only *how* a
+  column is binned; *whether* it is binned stays with ``numeric`` + ``cardinality_threshold``.
 
 Everything here is host-side and deterministic (``np.quantile`` + ``np.unique`` + ``np.digitize``),
 so CPU and GPU produce identical bin ids and CPU/GPU parity holds at allclose. This module imports
@@ -59,14 +64,94 @@ def _bin_edges(finite: np.ndarray, n_bins: int, binning: str) -> tuple[np.ndarra
     return interior.astype(float), int(interior.size + 1)
 
 
-def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binning: str) -> dict:
+def _as_edge_array(spec, ctx: str) -> np.ndarray:
+    """Coerce ``spec`` to a validated 1-D float edge array (>= 2 finite, strictly increasing).
+
+    Strings/scalars are rejected here so callers can treat "string -> strategy, else -> edges"
+    unambiguously; ``ctx`` names the offending param in the error message.
+    """
+    if isinstance(spec, (str, bytes)) or np.ndim(spec) == 0:
+        raise ValueError(f"{ctx}={spec!r} must be a strategy string or a sequence of >= 2 edges.")
+    try:
+        arr = np.asarray(spec, dtype=float)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{ctx}={spec!r} must be a numeric edge sequence.") from e
+    if arr.ndim != 1 or arr.size < 2:
+        raise ValueError(f"{ctx} edge array must be 1-D with >= 2 values; got shape {arr.shape}.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"{ctx} edge array must be all-finite (no NaN/inf).")
+    if not np.all(np.diff(arr) > 0):
+        raise ValueError(f"{ctx} edge array must be strictly increasing; got {list(arr)}.")
+    return arr
+
+
+def _check_binning_value(spec, ctx: str) -> None:
+    """One binning spec is a strategy string (``"quantile"``/``"uniform"``) or an edge array."""
+    if isinstance(spec, str):
+        if spec not in ("quantile", "uniform"):
+            raise ValueError(f"{ctx}={spec!r} must be 'quantile', 'uniform', or an edge array.")
+        return
+    _as_edge_array(spec, ctx)
+
+
+def validate_binning(binning) -> None:
+    """Validate the ``binning`` param's structure.
+
+    Accepts a strategy string, a 1-D explicit edge array (applied to every binned column), or a
+    ``{column: strategy-or-edges}`` dict for per-column control. Dict *keys* are checked against the
+    actual numeric columns later, in :func:`fit_numeric_plan`.
+    """
+    if isinstance(binning, dict):
+        for col, spec in binning.items():
+            _check_binning_value(spec, ctx=f"binning[{col!r}]")
+        return
+    _check_binning_value(binning, ctx="binning")
+
+
+def _col_binning_spec(c, binning):
+    """The binning spec for column ``c``: a strategy string or an explicit edge array.
+
+    A plain string/array applies to every binned column; a dict is consulted per column (a column
+    absent from the dict falls back to the default ``"quantile"`` strategy).
+    """
+    if isinstance(binning, dict):
+        return binning.get(c, "quantile")
+    return binning
+
+
+def _resolve_bin_edges(spec, finite: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
+    """Interior edges + bin count for one binned column from its resolved ``spec``.
+
+    A string ``spec`` computes edges from the column's finite values (the ``n_bins`` strategy); an
+    array ``spec`` is explicit boundaries (``np.unique``-sorted, the outer two dropped so
+    ``np.digitize`` clamps out-of-range to the end bins). Explicit edges set the bin count, so
+    ``n_bins`` is ignored for that column.
+    """
+    if isinstance(spec, str):
+        return _bin_edges(finite, n_bins, spec)
+    uniq = np.unique(_as_edge_array(spec, "binning"))
+    interior = uniq[1:-1]
+    return interior.astype(float), int(interior.size + 1)
+
+
+def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binning) -> dict:
     """Build the per-column numeric encoding plan from the **full** training frame.
 
     Returns ``{col: {"strategy", "edges", "n_bins"}}``. Bin edges come from feature values only
-    (never ``y``), so this is leakage-safe; the caller cross-fits the per-bin target statistic.
+    (computed strategies) or from the user (explicit edges) -- never ``y`` -- so this is
+    leakage-safe; the caller cross-fits the per-bin target statistic. ``binning`` may be a strategy
+    string, an edge array, or a ``{column: strategy-or-edges}`` dict (dict keys must name numeric
+    columns being encoded).
     """
     plan: dict = {}
     n_rows = len(Xdf)
+    if isinstance(binning, dict):
+        unknown = [c for c in binning if c not in numeric_cols]
+        if unknown:
+            raise ValueError(
+                f"binning keys {unknown} are not numeric columns being encoded "
+                f"(numeric columns: {list(numeric_cols)})."
+            )
     for c in numeric_cols:
         vals = pd.to_numeric(Xdf[c], errors="coerce").to_numpy(dtype=float)
         finite = vals[np.isfinite(vals)]
@@ -75,7 +160,7 @@ def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binni
         if strategy == "direct":
             plan[c] = {"strategy": "direct", "edges": None, "n_bins": None}
         else:
-            edges, nb = _bin_edges(finite, n_bins, binning)
+            edges, nb = _resolve_bin_edges(_col_binning_spec(c, binning), finite, n_bins)
             plan[c] = {"strategy": "bin", "edges": edges, "n_bins": nb}
     return plan
 

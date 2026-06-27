@@ -74,4 +74,7 @@ literature-backed recommendation. No committed perf baseline (`baseline-cpu.json
 - ✅ Numeric binning for `CountEncoder`/`FrequencyEncoder` (count/frequency of bins) — **done
   2026-06-27** (KI-030 resolved): reuses this numeric path on both unsupervised encoders, no
   `_base.py` edit; `fit_transform == fit().transform()`. → 0.4.0.
-- Custom/explicit bin edges and a min-bin-size knob — `n_bins` + `min_samples_category` cover MVP.
+- ✅ **Explicit / per-column bin edges** — **done 2026-06-27** (→ 0.4.0): `binning` now accepts an
+  edge array or a `{col: strategy-or-edges}` dict on all three encoders; logic isolated to
+  `_numeric.py` (cross-fit untouched), OOF stays exact (edges ⊥ y). A **min-bin-size** knob is the
+  remaining follow-up (next PR).

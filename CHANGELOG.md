@@ -3,7 +3,7 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] — 2026-06-27
 
 ### Added
 - **Numeric binning for `CountEncoder` / `FrequencyEncoder`** (KI-030): the `numeric`,

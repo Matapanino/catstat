@@ -21,7 +21,10 @@ def test_oof_reconstruction_is_exact():
         means = pd.DataFrame({"g": g[tr], "y": y[tr]}).groupby("g")["y"].mean()
         for i in te:
             recon[i] = means.get(g[i], gmean)
-    assert np.nanmax(np.abs(oof - recon)) == 0.0
+    # The fast kfold-mean path derives each fold's complement stats by subtraction (global - fold),
+    # which reassociates the sums -- so the match is allclose, not bitwise (CLAUDE.md invariant #2,
+    # the same standard as CPU/GPU parity). Any real leak would dwarf this ~1e-15 FP residual.
+    assert np.nanmax(np.abs(oof - recon)) < 1e-9
 
 
 def test_noise_category_does_not_leak():

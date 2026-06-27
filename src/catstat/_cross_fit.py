@@ -81,3 +81,87 @@ def ordered_encode(keys, y, a: float, prior: float, perm: np.ndarray) -> np.ndar
     out = np.empty(len(yv), dtype=float)
     out[perm] = enc_perm
     return out
+
+
+def kfold_mean_oof_fast(
+    keys, missing_mask, yv, fold_id, n_folds, smooth, handle_missing, handle_unknown
+) -> np.ndarray:
+    """Out-of-fold mean encoding for a partitioning kfold CV, in a single vectorized pass.
+
+    Mathematically identical to fitting ``_smoothing.fit_mean_encoding`` on each fold's COMPLEMENT
+    and mapping the held-out fold's rows -- but computed without the per-fold group-by loop. Under a
+    partitioning CV (``KFold``/``StratifiedKFold``), the complement of test-fold ``f`` is exactly
+    its train set, so each fold's ``(count, sum, sumsq)`` is ``global - this_fold`` by
+    subtraction of one composite ``(fold, key)`` aggregation. The smoothing arithmetic mirrors
+    ``fit_mean_encoding`` exactly (fixed m-estimate and ``smooth='auto'`` empirical-Bayes with the
+    fold-complement population mean/variance); parity is asserted at allclose by the leakage audit.
+
+    ``yv`` is the (possibly binarized, for classification) target. Returns a float array of length
+    ``n``; rows are NaN where ``handle_missing='return_nan'`` drops them, or where an unseen
+    category meets ``handle_unknown='return_nan'``.
+    """
+    n = len(keys)
+    out = np.full(n, np.nan, dtype=float)
+    yv = np.asarray(yv, dtype=float)
+
+    # active rows are those that enter the statistics -- mirrors `_fit_all`'s `sel`: keep all rows
+    # for handle_missing='value' (MISSING is its own key) and 'error' (no missing present by then);
+    # drop missing rows for 'return_nan'.
+    active = ~missing_mask if handle_missing == "return_nan" else np.ones(n, dtype=bool)
+    a = np.nonzero(active)[0]
+    if a.size == 0:
+        return out
+
+    codes, _uniq = pd.factorize(keys[a])  # integer key codes over active rows
+    n_cat = int(codes.max()) + 1
+    fid = fold_id[a]
+    y_a = yv[a]
+    y2_a = y_a * y_a
+
+    # one composite (fold, key) aggregation via flattened bincount; per-key globals by summing folds
+    comp = fid * n_cat + codes
+    size = n_folds * n_cat
+    fc = np.bincount(comp, minlength=size).astype(float)
+    fs = np.bincount(comp, weights=y_a, minlength=size)
+    fss = np.bincount(comp, weights=y2_a, minlength=size)
+    gc = fc.reshape(n_folds, n_cat).sum(0)
+    gs = fs.reshape(n_folds, n_cat).sum(0)
+    gss = fss.reshape(n_folds, n_cat).sum(0)
+
+    # complement (all folds but this row's) per active row, by subtraction
+    cc = gc[codes] - fc[comp]
+    cs = gs[codes] - fs[comp]
+    css = gss[codes] - fss[comp]
+
+    # per-fold complement prior: global mean (and population var for 'auto') over the other folds
+    tn = np.bincount(fid, minlength=n_folds).astype(float)
+    ts = np.bincount(fid, weights=y_a, minlength=n_folds)
+    tss = np.bincount(fid, weights=y2_a, minlength=n_folds)
+    cn = tn.sum() - tn  # > 0 for n_folds >= 2 (always: KFold rejects n_splits < 2)
+    g = (ts.sum() - ts) / cn
+    g_row = g[fid]
+
+    seen = cc > 0.0  # category present in the complement (else -> handle_unknown)
+    cc_safe = np.where(seen, cc, 1.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean_c = cs / cc_safe
+        if isinstance(smooth, str):  # 'auto' empirical-Bayes, per fold
+            tau2 = (tss.sum() - tss) / cn - g * g
+            tau2_row = tau2[fid]
+            var_pop = np.clip(css / cc_safe - mean_c * mean_c, 0.0, None)
+            m = np.where(tau2_row > 0.0, var_pop / np.where(tau2_row > 0.0, tau2_row, 1.0), 0.0)
+            lam = cc / (cc + m)
+            enc = lam * mean_c + (1.0 - lam) * g_row
+        else:
+            mm = float(smooth)
+            enc = mean_c if mm == 0.0 else (cc * mean_c + mm * g_row) / (cc + mm)
+
+    if not seen.all():
+        if handle_unknown == "error":
+            raise ValueError(
+                "Found unknown categories during out-of-fold encoding (handle_unknown='error')."
+            )
+        enc = np.where(seen, enc, g_row if handle_unknown == "value" else np.nan)
+
+    out[a] = enc
+    return out

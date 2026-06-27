@@ -121,7 +121,9 @@ def test_binned_oof_reconstruction_is_exact():
         means = pd.DataFrame({"b": binid[tr], "y": y[tr]}).groupby("b")["y"].mean()
         for i in te:
             recon[i] = means.get(binid[i], gmean)
-    assert np.nanmax(np.abs(oof - recon)) == 0.0
+    # allclose, not bitwise: the fast kfold-mean path reassociates fold sums (global - fold), like
+    # CPU/GPU parity (CLAUDE.md invariant #2). A real leak would be orders of magnitude > 1e-15.
+    assert np.nanmax(np.abs(oof - recon)) < 1e-9
 
 
 def test_binned_noise_does_not_leak():

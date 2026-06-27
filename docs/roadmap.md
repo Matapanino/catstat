@@ -103,6 +103,10 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   **M0 bootstrap (2026-06-26)**.
 - ✅ **Phase 2 (CPU + GPU validated)** 2026-06-26: var/std/median/min/max, combination mode,
   GPU backend `backends/_gpu.py` **validated CPU/GPU-allclose on a Colab T4**, CI, Colab loop, `git`.
+- **Perf arc (2026-06-26, profiling-driven).** ✅ CPU OOF is now single-pass: `kfold_mean_oof_fast`
+  (complement subtraction) replaces the per-fold group-by for the pure-mean kfold case — 2.2–3.4×
+  faster (allclose; `docs/verdicts/2026-06-26-pr-b-complement-subtraction-mean-verdict.md`). The same
+  backend-agnostic kernel ports on-device to remove the per-fold host↔device round-trips (KI-020).
 - **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
   GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.

@@ -44,7 +44,8 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   `backend="auto"` GPU **disabled** (`_AUTO_GPU_ENABLED=False`); explicit `backend="gpu"` stays. KI-020.
 - ✅ combination joint-key build **vectorized** to int64 mixed-radix codes (KI-019, 2026-06-27:
   byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M; supersedes PR #2). ⏳ GPU
-  `combination` still host-only (KI-018) — now keyed by integers, ready to unblock on-device next.
+  `combination`/`interactions` now run on GPU in **code** too (host-built int64 codes → device
+  group-by; `host_only = not all_gpu`); **Colab CPU/GPU parity is pending before merge** (KI-018).
 - **GPU perf** (re-measured 2026-06-26, T4): host complement-subtraction (PR-B) removed the per-fold
   round-trip → crossover ~parity at ≥5M (0.67×@1M, 1.11×@5M, 1.06×@10M; marginal + noisy). `auto`
   **stays off** (data doesn't justify it); a device-resident path is a niche lever.
@@ -118,7 +119,8 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   (multi-stat / high-card), single-stat neutral (`docs/verdicts/2026-06-27-transform-gather-verdict.md`,
   KI-031). ✅ **Integer joint codes** (2026-06-27): combination key-build replaced by mixed-radix
   int64 codes — byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
-  (supersedes PR #2); GPU `combination` (KI-018) is the remaining lever.
+  (supersedes PR #2). ⏳ **GPU `combination`** unblocked in code (`host_only` drop + int64 codes to
+  the device group-by); **Colab parity pending** before merge (KI-018, `feat/perf-gpu-combination`).
 - ✅ **Interactions (2026-06-27)**: `interactions=[[...]]` → one joint TE column per group (additive
   to `cols`; generalizes `combination`). `_units` plumbing + one param; OOF / naming / parity reuse
   the unit machinery. `test_interactions.py`; sklearn-compat PASS. Branch `feat/interactions`.
@@ -132,8 +134,11 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > byte-identical output, combination transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
 > and supersedes PR #2; leakage + sklearn-compat PASS. The perf stack (#3 mean, #5 var/std, #7 gather,
 > joint codes) and **interactions** (`interactions: list[list[str]]`) are all now merged to main.
-> **Next, in order:** (1) **lever #2B — GPU `combination`**: drop `len(cols)>1` from `host_only` +
-> build joint codes in `_gpu.py`, with **mandatory** Colab CPU/GPU parity (KI-018); (2) **PR-D** GPU
-> on-device kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Maintainer-only
-> carryover: tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for
-> `Count`/`Frequency` (KI-030).
+> **Lever #2B — GPU `combination` (code done, `feat/perf-gpu-combination`)**: `host_only = not
+> all_gpu` (combination/interaction no longer forced to CPU); host-built int64 joint codes flow to the
+> device group-by (`_gpu._to_nullable` non-object guard). CPU green; combination/missing/interactions
+> parity cases added to `test_cpu_gpu_parity.py` + `colab_gpu_parity.py`. **BLOCKED on the mandatory
+> Colab CPU/GPU `allclose` run** (`scripts/colab_gpu_parity.sh`) before merge — I have no local GPU
+> (KI-018). **Next:** (1) maintainer runs Colab parity → if green, merge #2B and resolve KI-018;
+> (2) **PR-D** GPU on-device kernel + fresh crossover before re-enabling `auto` (KI-020). Maintainer
+> carryover: tag `v0.2.0`; enable GitHub Pages; optional numeric binning for `Count`/`Frequency` (KI-030).

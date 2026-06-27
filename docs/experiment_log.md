@@ -277,3 +277,24 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   param. sklearn-compat PASS. Branch off main (independent of the perf PRs). Joint keys stay
   GPU-host-only (KI-018).
 - Verdict: n/a (feature; no default changed).
+
+## 2026-06-27 — GPU `combination` unblocked (lever #2B, KI-018) — CODE; Colab parity PENDING
+- Hypothesis: now that combination/interaction units key on **int64 mixed-radix joint codes** (lever
+  #2A, host-built in `_unit_keys`), they no longer need tuple keys on the device — cuDF can group an
+  int64 column directly. So dropping the `len(cols) > 1` clause from `host_only` (`host_only = not
+  all_gpu`) should let combination run on the GPU backend, with parity intact because the joint codes
+  are byte-identical on both backends (built on host) and only the device group-by differs — the same
+  situation already validated for single-column. A missing component is folded into an ordinary int
+  code on the host, so no MISSING sentinel reaches the device (`_gpu._to_nullable` returns early for
+  non-object key arrays).
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0 (CPU-only box, **no local GPU**). CPU green gate
+  (`scripts/check.sh`); verified `backend='gpu'`+combination still **raises** on a no-GPU box (no
+  silent fallback) and `auto`/`cpu` combination unchanged. Added combination (mean/var) +
+  missing-component + interactions parity cases to `tests/test_cpu_gpu_parity.py` (gpu-marked, skipped
+  locally) and `scripts/colab_gpu_parity.py`.
+- Result: CODE COMPLETE, **NOT YET VALIDATED** — the device path changed, so CPU/GPU `allclose` on a
+  real GPU is the mandatory gate and **I cannot run it** (no local GPU). Maintainer must run
+  `bash scripts/colab_gpu_parity.sh` (T4); combination/missing/interactions must show
+  `transform_allclose` + `fit_transform_allclose` true and `backend_gpu == "gpu"`.
+- Verdict: PENDING Colab parity. If green → merge `feat/perf-gpu-combination`, mark KI-018 resolved.
+  If a mismatch appears, do NOT merge; investigate the device group-by on int64 keys.

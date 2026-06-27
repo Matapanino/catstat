@@ -73,4 +73,6 @@ echo ">> downloading parity JSONL -> $JSONL_OUT"
 colab download -s "$SESSION" /content/parity.jsonl "$JSONL_OUT" || echo "   (no JSONL produced)"
 
 echo ">> done. report at $REPORT_OUT"
-[[ "$KEEP" -eq 1 ]] && echo ">> VM left running (session: $SESSION); 'colab stop -s $SESSION' when done."
+if [[ "$KEEP" -eq 1 ]]; then
+    echo ">> VM left running (session: $SESSION); 'colab stop -s $SESSION' when done."
+fi

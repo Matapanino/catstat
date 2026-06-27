@@ -45,8 +45,10 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 - ✅ combination joint-key build **vectorized** to int64 mixed-radix codes (KI-019, 2026-06-27:
   byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M; supersedes PR #2). ⏳ GPU
   `combination` still host-only (KI-018) — now keyed by integers, ready to unblock on-device next.
-- ⏳ **GPU perf**: keep keys/folds on-device to remove the per-fold host↔device round-trips that
-  dominate; then re-run the crossover and re-enable `auto` if it wins.
+- **GPU perf** (re-measured 2026-06-26, T4): host complement-subtraction (PR-B) removed the per-fold
+  round-trip → crossover ~parity at ≥5M (0.67×@1M, 1.11×@5M, 1.06×@10M; marginal + noisy). `auto`
+  **stays off** (data doesn't justify it); a device-resident path is a niche lever.
+  `docs/verdicts/2026-06-26-gpu-crossover-postPRB-verdict.md`.
 
 ## Phase 3 — advanced — in progress (2026-06-26)
 - ✅ **Phase 3a**: `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or

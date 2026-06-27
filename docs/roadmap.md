@@ -42,7 +42,9 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   missing-as-value** (cuDF nulls), transform + fit_transform. Two verdicts (parity + crossover).
 - ✅ **Crossover measured**: GPU is *slower* than CPU up to 1M rows (speedup 0.28–0.86) →
   `backend="auto"` GPU **disabled** (`_AUTO_GPU_ENABLED=False`); explicit `backend="gpu"` stays. KI-020.
-- ⏳ `combination` on GPU (tuple keys, host-only) + vectorize joint-key build (KI-018/019).
+- ✅ combination joint-key build **vectorized** to int64 mixed-radix codes (KI-019, 2026-06-27:
+  byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M; supersedes PR #2). ⏳ GPU
+  `combination` still host-only (KI-018) — now keyed by integers, ready to unblock on-device next.
 - ⏳ **GPU perf**: keep keys/folds on-device to remove the per-fold host↔device round-trips that
   dominate; then re-run the crossover and re-enable `auto` if it wins.
 
@@ -112,18 +114,21 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   remove per-fold host↔device round-trips (KI-020). ✅ **Transform gather** (2026-06-27): factorize-once
   `index.get_indexer` + numpy gather replaced per-column `pd.Series.map` — transform ×2.3–3.4
   (multi-stat / high-card), single-stat neutral (`docs/verdicts/2026-06-27-transform-gather-verdict.md`,
-  KI-031). **Next CPU lever:** integer **joint** codes to vectorize the combination key-build (KI-019)
-  and unblock GPU `combination` (KI-018).
+  KI-031). ✅ **Integer joint codes** (2026-06-27): combination key-build replaced by mixed-radix
+  int64 codes — byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
+  (supersedes PR #2); GPU `combination` (KI-018) is the remaining lever.
 - **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
   GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** **Transform gather done (2026-06-27)** — factorize-once `index.get_indexer` + numpy
-> gather replaced per-column `pd.Series.map`; transform ×2.3–3.4 (multi-stat / high-card), single-stat
-> neutral; leakage-audited; branch `feat/perf-integer-code-gather` (stacked on `feat/perf-additive-var-std`).
-> **Next, in order:** (1) **integer joint codes** (`c_a*n_b+c_b`) — vectorize the combination key-build
-> (still a Python loop, KI-019) and unblock GPU `combination` (KI-018); (2) **PR-D** GPU on-device
-> kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Also pending on a separate
-> branch: **interactions** `interactions: list[list[str]]`. Maintainer-only carryover: tag `v0.2.0`
-> to publish; enable GitHub Pages; optional numeric binning for `Count`/`Frequency` (KI-030).
+> **Next task:** **Integer joint codes done (2026-06-27, lever #2A)** — combination key-build replaced
+> by vectorized mixed-radix int64 codes (learned once from full X, reused at fit/fold/transform);
+> byte-identical output, combination transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
+> and supersedes PR #2; leakage + sklearn-compat PASS; branch `feat/perf-integer-joint-codes` (stacked
+> on `feat/perf-integer-code-gather`). **Next, in order:** (1) **lever #2B — GPU `combination`**: drop
+> `len(cols)>1` from `host_only` + build joint codes in `_gpu.py`, with **mandatory** Colab CPU/GPU
+> parity (KI-018); (2) **PR-D** GPU on-device kernel + a fresh Colab crossover before re-enabling
+> `auto` (KI-020). Also pending on a separate branch: **interactions** `interactions: list[list[str]]`.
+> Maintainer-only carryover: tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for
+> `Count`/`Frequency` (KI-030); reconcile PR #2 (superseded).

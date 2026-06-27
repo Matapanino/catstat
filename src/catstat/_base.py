@@ -7,6 +7,8 @@ knows pandas vs cuDF. Subclasses define the sklearn ``__init__`` params and two 
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -19,6 +21,7 @@ from ._cross_fit import (
     factorize_active,
     finalize_dispersion_oof,
     finalize_mean_oof,
+    gather,
     loo_encode,
     make_folds,
     ordered_encode,
@@ -41,6 +44,21 @@ from .backends._dispatch import backend_module, select_backend
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
 _ADDITIVE_STATS = frozenset({"mean", "var", "std"})  # stats the single-pass kernel can finalize
+
+
+@dataclass(frozen=True)
+class _UnitEncoding:
+    """A fitted encoding for one ``(feature, stat, class)`` column, stored for code-gather.
+
+    ``index`` is the encoding unit's canonical category index, shared *by reference* across all of
+    the unit's columns -- so transform factorizes the unit's keys once (``index.get_indexer``) and
+    gathers every column by integer code. ``values`` is the float64 encoding aligned to ``index``;
+    ``fallback`` is the global statistic used for unknown / tiny-n categories (§11).
+    """
+
+    index: pd.Index
+    values: np.ndarray
+    fallback: float
 
 
 class _BaseStatEncoder(TransformerMixin, BaseEstimator):
@@ -162,8 +180,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self.categories_ = {}
         self.global_stats_ = {}
         for meta in self._columns_meta:
-            enc, fb = self._fit_tables[self._key(meta)]
-            self.global_stats_[meta.name] = fb
+            enc = self._fit_tables[self._key(meta)]
+            self.global_stats_[meta.name] = enc.fallback
             self.categories_.setdefault(meta.feature, np.asarray(list(enc.index), dtype=object))
         self._set_target_mean()
         return self
@@ -174,10 +192,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         f0 = self._units[0][0]
         if self.target_type_ == "multiclass":
             self.target_mean_ = np.asarray(
-                [self._fit_tables[(f0, "mean", c)][1] for c in self.classes_], dtype=float
+                [self._fit_tables[(f0, "mean", c)].fallback for c in self.classes_], dtype=float
             )
         else:
-            self.target_mean_ = float(self._fit_tables[(f0, "mean", None)][1])
+            self.target_mean_ = float(self._fit_tables[(f0, "mean", None)].fallback)
 
     # ---- numeric-column encoding (opt-in, cardinality-aware) ---------------------------------
     def _validate_numeric_params(self) -> str:
@@ -245,10 +263,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
     # ---- per-statistic fitting ---------------------------------------------------------------
     def _fit_all(self, Xdf, y_arr, specs=None):
-        """Return the encoding tables ``{(feature, stat, class): (Series, fallback)}``.
+        """Return the encoding tables ``{(feature, stat, class): _UnitEncoding}``.
 
         ``specs`` defaults to all stats; the hybrid OOF slow path passes only the non-additive
         specs so the additive columns (already done by the single-pass kernel) cost nothing here.
+        Each unit's columns are aligned to one canonical category index (the first column's), so
+        transform factorizes the unit's keys once and gathers every column by integer code.
         """
         tables = {}
         hm = self.handle_missing
@@ -262,36 +282,47 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             sel = np.ones(len(keys_full), dtype=bool) if hm == "value" else ~missing_mask
             keys = keys_full[sel]
             n_total = int(sel.sum())
+            entries = []  # (table_key, Series, fallback) for this unit; aligned to canonical below
             for spec in specs:
                 if spec.name == "count":
-                    tables[(feat, "count", None)] = self._fit_count(keys, False, n_total)
+                    s, fb = self._fit_count(keys, False, n_total)
+                    entries.append(((feat, "count", None), s, fb))
                 elif spec.name == "frequency":
-                    tables[(feat, "frequency", None)] = self._fit_count(keys, True, n_total)
+                    s, fb = self._fit_count(keys, True, n_total)
+                    entries.append(((feat, "frequency", None), s, fb))
                 elif spec.name == "mean":
                     y_sel = y_arr[sel]
                     bk = self._backend_mod
                     if self.target_type_ == "continuous":
-                        tables[(feat, "mean", None)] = fit_mean_encoding(
-                            keys, y_sel.astype(float), self.smooth, bk
-                        )
+                        s, fb = fit_mean_encoding(keys, y_sel.astype(float), self.smooth, bk)
+                        entries.append(((feat, "mean", None), s, fb))
                     elif self.target_type_ == "binary":
                         yb = (y_sel == self.classes_[1]).astype(float)
-                        tables[(feat, "mean", None)] = fit_mean_encoding(keys, yb, self.smooth, bk)
+                        s, fb = fit_mean_encoding(keys, yb, self.smooth, bk)
+                        entries.append(((feat, "mean", None), s, fb))
                     else:  # multiclass: one-vs-rest per global class
                         for c in self.classes_:
                             yc = (y_sel == c).astype(float)
-                            tables[(feat, "mean", c)] = fit_mean_encoding(keys, yc, self.smooth, bk)
+                            s, fb = fit_mean_encoding(keys, yc, self.smooth, bk)
+                            entries.append(((feat, "mean", c), s, fb))
                 else:  # var/std/median/min/max/skew or custom (continuous-only, target-dependent)
                     min_samples = getattr(self, "min_samples_category", 1)
                     y_sel_f = y_arr[sel].astype(float)
                     if spec.func is not None:
-                        tables[(feat, spec.name, None)] = fit_custom_encoding(
-                            keys, y_sel_f, spec.func, min_samples
-                        )
+                        s, fb = fit_custom_encoding(keys, y_sel_f, spec.func, min_samples)
                     else:
-                        tables[(feat, spec.name, None)] = fit_stat_encoding(
+                        s, fb = fit_stat_encoding(
                             keys, y_sel_f, spec.name, min_samples, self._backend_mod
                         )
+                    entries.append(((feat, spec.name, None), s, fb))
+            # Align the unit's encodings to one canonical category index (the first column's). Every
+            # stat groups the same keys, so they share the category *set*; reindex only reorders --
+            # no NaN is introduced -- and a unit's keys can then be factorized once at transform.
+            if entries:
+                canonical = entries[0][1].index
+                for tkey, s, fb in entries:
+                    vals = s.reindex(canonical).to_numpy(dtype=float)
+                    tables[tkey] = _UnitEncoding(canonical, vals, fb)
         return tables
 
     @staticmethod
@@ -326,33 +357,35 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         n = Xdf.shape[0]
         out = np.full((n, len(self._columns_meta)), np.nan, dtype=float)
         hm, hu = self.handle_missing, self.handle_unknown
-        cache: dict = {}
+        cache: dict = {}  # feat -> (keys, missing_mask, codes) for the unit's canonical index
         for j, meta in enumerate(self._columns_meta):
             if self._key(meta) not in tables:  # restricted table (hybrid slow path): skip absent
                 continue
             feat = meta.feature
+            enc = tables[self._key(meta)]
             if feat not in cache:
                 keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[feat])
                 if hm == "error" and missing_mask.any():
                     raise ValueError(
                         f"Missing values in unit {feat!r} with handle_missing='error'."
                     )
-                cache[feat] = (keys, missing_mask)
-            keys, missing_mask = cache[feat]
+                # factorize the unit's keys once; every column of the unit shares this canonical idx
+                codes = enc.index.get_indexer(keys)
+                has_unknown = bool((codes < 0).any())  # once per unit, reused across its columns
+                cache[feat] = (keys, missing_mask, codes, has_unknown)
+            keys, missing_mask, codes, has_unknown = cache[feat]
 
-            enc_series, fallback = tables[self._key(meta)]
-            mapped = pd.Series(keys).map(enc_series).to_numpy(dtype=float)
-            col = mapped.copy()
-            notfound = np.isnan(mapped)
+            col = gather(enc.values, codes, has_unknown)  # drop-in for pd.Series(keys).map(series)
+            notfound = np.isnan(col)
 
             if hm == "return_nan":
                 col[missing_mask] = np.nan
-                self._apply_unknown(col, notfound & ~missing_mask, fallback, hu, feat)
+                self._apply_unknown(col, notfound & ~missing_mask, enc.fallback, hu, feat)
             elif hm == "value":
                 # rows not found are either unseen real categories OR an unseen missing level
-                self._apply_unknown(col, notfound, fallback, hu, feat)
+                self._apply_unknown(col, notfound, enc.fallback, hu, feat)
             else:  # "error" already raised above if any missing present
-                self._apply_unknown(col, notfound & ~missing_mask, fallback, hu, feat)
+                self._apply_unknown(col, notfound & ~missing_mask, enc.fallback, hu, feat)
             out[:, j] = col
         return out
 

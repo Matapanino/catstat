@@ -121,6 +121,28 @@ def factorize_active(keys, missing_mask, handle_missing):
     return n, a, codes, int(codes.max()) + 1
 
 
+def gather(values: np.ndarray, codes: np.ndarray, has_unknown: bool) -> np.ndarray:
+    """Reproduce ``pd.Series.map`` over integer codes, as a numpy fancy-index gather.
+
+    ``values`` is a unit's encoding aligned to its canonical category index; ``codes`` come from
+    ``index.get_indexer(keys)`` (``>= 0`` for a known category, ``-1`` for a key absent from the
+    index). Known codes gather ``values[code]``; unknown codes (``-1``) map to NaN -- identical to
+    ``.map`` returning NaN for a key that is not in the encoding's index, so the downstream
+    unknown/missing fallback logic in ``_transform_array`` is unchanged.
+
+    ``has_unknown`` (any ``codes < 0``) is precomputed once per unit: when every key is known the
+    gather is a single fancy index (the common transform-on-seen-data case); otherwise unknown rows
+    are masked to NaN. Both branches return a fresh array safe to mutate in place.
+    """
+    if not has_unknown:
+        return values[codes]  # fast path: every key known -> no -1 to mask
+    out = np.empty(codes.shape[0], dtype=float)
+    known = codes >= 0
+    out[known] = values[codes[known]]
+    out[~known] = np.nan
+    return out
+
+
 def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _OOFMoments:
     """Out-of-fold ``(count, sum, sumsq)`` per active row, by subtraction from the grand totals of
     one composite ``(fold, key)`` aggregation.

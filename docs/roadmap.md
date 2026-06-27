@@ -119,6 +119,9 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   KI-031). ✅ **Integer joint codes** (2026-06-27): combination key-build replaced by mixed-radix
   int64 codes — byte-identical, transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
   (supersedes PR #2); GPU `combination` (KI-018) is the remaining lever.
+- ✅ **Interactions (2026-06-27)**: `interactions=[[...]]` → one joint TE column per group (additive
+  to `cols`; generalizes `combination`). `_units` plumbing + one param; OOF / naming / parity reuse
+  the unit machinery. `test_interactions.py`; sklearn-compat PASS. Branch `feat/interactions`.
 - **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
   GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
@@ -127,10 +130,10 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > **Next task:** **Integer joint codes done (2026-06-27, lever #2A)** — combination key-build replaced
 > by vectorized mixed-radix int64 codes (learned once from full X, reused at fit/fold/transform);
 > byte-identical output, combination transform ×3.7–4.4 / fit_transform ×1.5–2.4 at 1M, closes KI-019
-> and supersedes PR #2; leakage + sklearn-compat PASS; branch `feat/perf-integer-joint-codes` (stacked
-> on `feat/perf-integer-code-gather`). **Next, in order:** (1) **lever #2B — GPU `combination`**: drop
-> `len(cols)>1` from `host_only` + build joint codes in `_gpu.py`, with **mandatory** Colab CPU/GPU
-> parity (KI-018); (2) **PR-D** GPU on-device kernel + a fresh Colab crossover before re-enabling
-> `auto` (KI-020). Also pending on a separate branch: **interactions** `interactions: list[list[str]]`.
-> Maintainer-only carryover: tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for
-> `Count`/`Frequency` (KI-030); reconcile PR #2 (superseded).
+> and supersedes PR #2; leakage + sklearn-compat PASS. The perf stack (#3 mean, #5 var/std, #7 gather,
+> joint codes) and **interactions** (`interactions: list[list[str]]`) are all now merged to main.
+> **Next, in order:** (1) **lever #2B — GPU `combination`**: drop `len(cols)>1` from `host_only` +
+> build joint codes in `_gpu.py`, with **mandatory** Colab CPU/GPU parity (KI-018); (2) **PR-D** GPU
+> on-device kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Maintainer-only
+> carryover: tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for
+> `Count`/`Frequency` (KI-030).

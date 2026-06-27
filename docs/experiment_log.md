@@ -261,3 +261,19 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Verdict: docs/verdicts/2026-06-27-integer-joint-codes-verdict.md. Closes KI-019, supersedes PR #2.
   Next lever: **#2B GPU `combination`** (KI-018) — drop `host_only` combination clause + joint codes
   in `_gpu.py`, **mandatory** Colab CPU/GPU parity.
+
+## 2026-06-27 — explicit interaction groups (`interactions=[[...]]`)
+- Hypothesis: the engine already treats a "unit" as an arbitrary column group (tuple keys), so an
+  explicit `interactions: list[list[str]]` param that appends one joint unit per group is mostly a
+  `_units`-construction + param change; OOF / naming / unknown-missing / parity reuse the existing
+  unit machinery. Generalizes `multi_feature_mode="combination"` (joint-only) by adding joint columns
+  on top of the independent `cols`.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; `tests/test_interactions.py` (naming, equality
+  with the combination encoder, multi-stat, dedup, validation errors, clone/get_params); sklearn-compat
+  spot-checks (clone/set_params roundtrip, Pipeline, ColumnTransformer, set_output, feature-name
+  width); `scripts/check.sh` green.
+- Result: KEEP — `a+b__te_*` columns added additively; the interaction column == the combination
+  encoder's column (allclose); duplicates deduped; invalid groups raise; clone/get_params preserve the
+  param. sklearn-compat PASS. Branch off main (independent of the perf PRs). Joint keys stay
+  GPU-host-only (KI-018).
+- Verdict: n/a (feature; no default changed).

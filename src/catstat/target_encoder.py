@@ -26,6 +26,12 @@ class TargetEncoder(_BaseStatEncoder):
     out-of-fold. ``cardinality_threshold`` accepts an int (absolute unique count) or a float in
     (0, 1] (unique/n ratio). Inspect the fitted ``numeric_strategy_`` / ``bin_edges_`` attrs.
 
+    ``interactions`` adds one joint target-encoded column per group: e.g.
+    ``interactions=[["a", "b"]]`` encodes the ``(a, b)`` pair as one category (named ``"a+b"``) on
+    top of the independent ``cols``. It generalizes ``multi_feature_mode="combination"`` (which
+    encodes a single joint column over *all* cols and nothing independent). Joint/tuple keys are
+    CPU-only on GPU backends (KI-018).
+
     Parameters mirror ``docs/proposals/target-encoder-library-design.md`` §3.
     """
 
@@ -49,6 +55,7 @@ class TargetEncoder(_BaseStatEncoder):
         cardinality_threshold=10,
         n_bins=10,
         binning="quantile",
+        interactions=None,
     ):
         self.cols = cols
         self.stats = stats
@@ -68,6 +75,7 @@ class TargetEncoder(_BaseStatEncoder):
         self.cardinality_threshold = cardinality_threshold
         self.n_bins = n_bins
         self.binning = binning
+        self.interactions = interactions
 
     def _is_supervised(self) -> bool:
         return True

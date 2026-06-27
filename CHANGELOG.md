@@ -3,6 +3,20 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Numeric binning for `CountEncoder` / `FrequencyEncoder`** (KI-030): the `numeric`,
+  `cardinality_threshold`, `n_bins`, and `binning` parameters — previously `TargetEncoder`-only —
+  now work on both unsupervised encoders. A numeric column is routed by cardinality (`numeric="auto"`)
+  or forced (`"direct"` / `"bin"`); a binned column takes each row's **bin count** (`CountEncoder`)
+  or **normalized-histogram frequency** (`FrequencyEncoder`), while `"direct"` counts each distinct
+  value. Because the encoders are unsupervised there is no target, so bin edges come from the training
+  feature only and `fit_transform` equals `fit().transform()`. Inspect `numeric_cols_` /
+  `numeric_strategy_` / `bin_edges_`. The binning reuses `TargetEncoder`'s numeric machinery unchanged,
+  so feature names, unknown/missing handling, and CPU/GPU string-key parity all carry over; `numpy`-
+  array input and `bool` columns stay categorical, matching `TargetEncoder`.
+
 ## [0.3.0] — 2026-06-27
 
 ### Added

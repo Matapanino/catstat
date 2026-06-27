@@ -314,3 +314,25 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   been failing only because Pages was off — re-ran it green, site live at
   https://matapanino.github.io/catstat/. Action versions still warn on Node 20 deprecation (future
   bump of `actions/checkout@v4` etc.).
+
+## 2026-06-27 — KI-030: numeric binning for `Count`/`Frequency` (first 0.4.0 feature)
+- Hypothesis (pre-profile): the numeric machinery built for `TargetEncoder` is encoder-agnostic, so
+  enabling it on the two unsupervised encoders is *just* adding the four `numeric`/`cardinality_
+  threshold`/`n_bins`/`binning` params verbatim — confirmed by reading the shared path.
+- Setup: `feat/numeric-count-frequency` off `main` (`83d7d74`, `v0.3.0` already tagged+pushed →
+  KI-030 lands in **0.4.0**). pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0 (CPU box, no local GPU).
+- Change: **only** `count_encoder.py` + `frequency_encoder.py` `__init__` (params + docstrings).
+  **Zero edits** to `_base.py` / `_numeric.py` / `_validation.py` — `select_cols` already gates on
+  `numeric_mode`, `_fit_count` already histograms string keys, `apply_numeric_col` already emits
+  GPU-safe strings. A binned column → per-row **bin count** (Count) / **normalized-histogram
+  frequency** (Freq); `"auto"` routes by cardinality, `"direct"` counts each value.
+- Result: green gate PASS (ruff + **201 passed / 11 GPU-skipped** + examples); `tests/test_count_
+  frequency.py` +12 numeric cases. `/sklearn-compat` PASS (clone/get_params/set_params, feature
+  names `col__count`/`col__freq`, set_output, Pipeline, ColumnTransformer with a binned encoder).
+  `/leakage-audit` PASS — TE OOF reconstruction guard still exact (untouched path); unsupervised
+  equivalence `fit_transform == fit().transform()` 12/12 across modes × handle_missing; output and
+  `bin_edges_` invariant to a (ignored) `y`.
+- Scope boundary (intentional, identical to `TargetEncoder`, noted in KI-030): numpy-array input is
+  all-`object` after `prepare_X` so numeric auto-detection doesn't fire, and `bool` stays categorical.
+- Verdict: KEEP. No new perf/quality verdict needed (a histogram has no CV-quality claim, no default
+  change). pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`. KI-030 **Resolved**.

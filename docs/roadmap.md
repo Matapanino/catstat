@@ -101,7 +101,14 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 - ✅ GPU parity for binned/direct numeric **validated on T4 (2026-06-26)**: `numeric_auto`/`numeric_bin`
   CPU/GPU allclose (max|Δ| ~1e-17). First run hit `MixedTypeError` (cuDF rejects object-dtype int keys)
   → fixed by emitting **string** keys.
-- ⏳ Numeric binning for `Count`/`Frequency` (KI-030).
+- ✅ Numeric binning for `Count`/`Frequency` (KI-030) — **done (2026-06-27, targets 0.4.0)**: a
+  numeric column takes each row's **bin count** (`CountEncoder`) / **bin frequency = normalized
+  histogram** (`FrequencyEncoder`). Added the four `numeric`/`cardinality_threshold`/`n_bins`/
+  `binning` params to both encoders; **all** binning logic reused from the shared `_numeric.py` path
+  (no edits to `_base.py`/`_validation.py`/`_numeric.py`). Unsupervised → edges from X only and the
+  safety property is plain equivalence (`fit_transform == fit().transform()`). `numpy`-array input
+  (all-object after `prepare_X`) and `bool` columns stay categorical, exactly as `TargetEncoder`.
+  `tests/test_count_frequency.py` (12 numeric cases).
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -143,8 +150,10 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > port; all came from sklearn's integer-code path). **Next:** **PR-D** GPU on-device kernel + a fresh
 > crossover before re-enabling `auto` — but the 2026-06-27 crossover re-confirms GPU only reaches
 > ~parity at ≥5M (0.93×@1M, 1.22×@5M, 1.07×@10M), so `auto` **stays off** and PR-D is a niche lever
-> (KI-020). **Maintainer carryover:** `0.2.0` is already on PyPI and **`0.3.0` is prepared** (version
-> bumped + CHANGELOG + build/twine/smoke verified, merged to main) — the maintainer tags to publish:
-> `git tag -a v0.3.0 -m "catstat 0.3.0" && git push origin v0.3.0` (Trusted Publishing fires on the
-> tag), then a GitHub release from the `[0.3.0]` notes. ✅ GitHub Pages enabled. **Next feature:**
-> `Count`/`Frequency` numeric binning (KI-030).
+> (KI-020). **Maintainer carryover:** `0.2.0` and **`0.3.0` are released** (`v0.3.0` tagged + pushed,
+> `refs/tags/v0.3.0` → `83d7d74`; Trusted Publishing fires on the tag). ✅ GitHub Pages enabled.
+> **Done since (first 0.4.0 feature):** `Count`/`Frequency` numeric binning (KI-030, branch
+> `feat/numeric-count-frequency`) — per-bin count / normalized-histogram frequency, reusing the
+> shared `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`.
+> **Next:** more 0.4.0 features or cut the 0.4.0 release; **PR-D** (GPU on-device) stays a niche lever
+> with `auto` off (KI-020).

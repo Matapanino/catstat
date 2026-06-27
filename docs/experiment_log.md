@@ -296,5 +296,9 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   real GPU is the mandatory gate and **I cannot run it** (no local GPU). Maintainer must run
   `bash scripts/colab_gpu_parity.sh` (T4); combination/missing/interactions must show
   `transform_allclose` + `fit_transform_allclose` true and `backend_gpu == "gpu"`.
-- Verdict: PENDING Colab parity. If green → merge `feat/perf-gpu-combination`, mark KI-018 resolved.
-  If a mismatch appears, do NOT merge; investigate the device group-by on int64 keys.
+- Verdict: **VALIDATED on Colab T4 (2026-06-27)** — combination mean/var, missing-component, and
+  interactions all `transform`+`fit_transform` allclose (max|Δ| ≤ 3.8e-15, fit_transform 0.0) with
+  `backend_=gpu`; pre-existing single-column/numeric cases still pass. **KI-018 RESOLVED.**
+  `docs/verdicts/2026-06-27-gpu-parity-report.md`, `benchmarks/results/2026-06-27-T4-gpu-parity.jsonl`.
+  Crossover re-confirms `auto` stays off (GPU ~parity only at ≥5M: 0.93×@1M, 1.22×@5M, 1.07×@10M;
+  KI-020 unchanged). KEEP → merge `feat/perf-gpu-combination`.

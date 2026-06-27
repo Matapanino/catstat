@@ -22,9 +22,15 @@ class TargetEncoder(_BaseStatEncoder):
     ``cardinality_threshold`` distinct values are encoded **directly** (each value a category),
     otherwise the column is **binned** into ``n_bins`` (``binning="quantile"`` equal-frequency, or
     ``"uniform"`` equal-width) and the bins are target-encoded; ``"direct"``/``"bin"`` force one
-    strategy. Bin edges come from feature values only (never ``y``), so the per-bin encoding stays
-    out-of-fold. ``cardinality_threshold`` accepts an int (absolute unique count) or a float in
-    (0, 1] (unique/n ratio). Inspect the fitted ``numeric_strategy_`` / ``bin_edges_`` attrs.
+    strategy. ``binning`` also accepts an explicit **edge array** (``[0, 18, 65, 120]`` -> 3 bins,
+    applied to every binned column) or a per-column ``{col: strategy-or-edges}`` **dict** (e.g.
+    ``{"age": [0, 18, 65, 120], "income": "quantile"}``); explicit edges set the bin count, so
+    ``n_bins`` is ignored for that column, and ``binning`` only controls *how* a column is binned --
+    *whether* it is binned stays with ``numeric`` + ``cardinality_threshold``. Bin edges come from
+    feature values only (computed strategies) or from the user (explicit edges) -- never ``y`` -- so
+    the per-bin encoding stays out-of-fold. ``cardinality_threshold`` takes an int (absolute unique
+    count) or a float in (0, 1] (unique/n ratio). Inspect the fitted ``numeric_strategy_`` /
+    ``bin_edges_`` attrs.
 
     ``interactions`` adds one joint target-encoded column per group: e.g.
     ``interactions=[["a", "b"]]`` encodes the ``(a, b)`` pair as one category (named ``"a+b"``) on

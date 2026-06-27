@@ -17,11 +17,15 @@ class CountEncoder(_BaseStatEncoder):
     ``cardinality_threshold`` distinct values are counted **directly** (each value a category),
     otherwise the column is **binned** into ``n_bins`` (``binning="quantile"`` equal-frequency, or
     ``"uniform"`` equal-width) and each row takes its **bin's count** -- a histogram (a normalized
-    histogram when ``normalize=True``). ``"direct"``/``"bin"`` force one strategy. Bin edges come
-    from feature values only (there is no ``y``), so they are a plain function of the training
-    column. ``cardinality_threshold`` accepts an int (absolute unique count) or a float in (0, 1]
-    (unique/n ratio). Inspect the fitted ``numeric_cols_`` / ``numeric_strategy_`` / ``bin_edges_``
-    attrs.
+    histogram when ``normalize=True``). ``"direct"``/``"bin"`` force one strategy. ``binning`` also
+    accepts an explicit **edge array** (``[0, 18, 65, 120]`` -> 3 bins, applied to every binned
+    column) or a per-column ``{col: strategy-or-edges}`` **dict**; explicit edges set the bin count
+    (``n_bins`` is then ignored for that column), and ``binning`` controls only *how* a column is
+    binned (*whether* stays with ``numeric`` + ``cardinality_threshold``). Bin edges come from
+    feature values only (there is no ``y``), so they are a plain function of the training column (or
+    of the user's explicit edges). ``cardinality_threshold`` accepts an int (absolute unique count)
+    or a float in (0, 1] (unique/n ratio). Inspect the fitted ``numeric_cols_`` /
+    ``numeric_strategy_`` / ``bin_edges_`` attrs.
     """
 
     def __init__(

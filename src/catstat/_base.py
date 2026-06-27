@@ -31,7 +31,7 @@ from ._cross_fit import (
     resolve_cv,
 )
 from ._feature_names import build_columns
-from ._numeric import apply_numeric_col, fit_numeric_plan
+from ._numeric import apply_numeric_col, fit_numeric_plan, validate_binning
 from ._smoothing import fit_mean_encoding
 from ._validation import (
     _is_numeric_like,
@@ -257,9 +257,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             raise ValueError(f"numeric={mode!r} must be one of 'ignore', 'auto', 'direct', 'bin'.")
         if mode == "ignore":
             return mode
-        binning = getattr(self, "binning", "quantile")
-        if binning not in ("quantile", "uniform"):
-            raise ValueError(f"binning={binning!r} must be 'quantile' or 'uniform'.")
+        validate_binning(getattr(self, "binning", "quantile"))
         n_bins = getattr(self, "n_bins", 20)
         if isinstance(n_bins, bool) or not isinstance(n_bins, (int, np.integer)) or n_bins < 2:
             raise ValueError(f"n_bins={n_bins!r} must be an integer >= 2.")

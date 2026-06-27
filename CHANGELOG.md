@@ -16,6 +16,15 @@ All notable changes to `catstat` are documented here. Format follows
   `numeric_strategy_` / `bin_edges_`. The binning reuses `TargetEncoder`'s numeric machinery unchanged,
   so feature names, unknown/missing handling, and CPU/GPU string-key parity all carry over; `numpy`-
   array input and `bool` columns stay categorical, matching `TargetEncoder`.
+- **Explicit & per-column bin edges** for numeric encoding: the `binning` parameter (on
+  `TargetEncoder`, `CountEncoder`, and `FrequencyEncoder`) now also accepts an explicit **edge
+  array** — `binning=[0, 18, 65, 120]` (→ 3 bins, applied to every binned numeric column) — or a
+  per-column **dict** mixing strategies and edges — `binning={"age": [0, 18, 65, 120], "income":
+  "quantile"}`. Explicit edges set the bin count (`n_bins` is ignored for that column) and
+  out-of-range values clamp to the outer bins, as with the `"quantile"`/`"uniform"` strategies.
+  `binning` controls only *how* a column is binned; *whether* it is binned stays with `numeric` +
+  `cardinality_threshold`. User-supplied edges depend on nothing in the data, so they are
+  leakage-safe a fortiori (OOF reconstruction stays exact).
 
 ## [0.3.0] — 2026-06-27
 

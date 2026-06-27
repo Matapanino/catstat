@@ -24,6 +24,7 @@ class FrequencyEncoder(CountEncoder):
         cardinality_threshold=10,
         n_bins=10,
         binning="quantile",
+        min_bin_size=None,
     ):
         super().__init__(
             cols=cols,
@@ -36,4 +37,5 @@ class FrequencyEncoder(CountEncoder):
             cardinality_threshold=cardinality_threshold,
             n_bins=n_bins,
             binning=binning,
+            min_bin_size=min_bin_size,
         )

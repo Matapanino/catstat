@@ -16,6 +16,8 @@ unchanged. Two strategies:
   binned column), a 1-D **edge array** (explicit boundaries for every binned column), or a
   ``{column: strategy-or-edges}`` **dict** for per-column control. ``binning`` governs only *how* a
   column is binned; *whether* it is binned stays with ``numeric`` + ``cardinality_threshold``.
+  ``min_bin_size`` merges adjacent sparse bins of the *computed* strategies (from training counts
+  only, so still ``y``-free); explicit edge arrays are left exactly as given.
 
 Everything here is host-side and deterministic (``np.quantile`` + ``np.unique`` + ``np.digitize``),
 so CPU and GPU produce identical bin ids and CPU/GPU parity holds at allclose. This module imports
@@ -119,32 +121,78 @@ def _col_binning_spec(c, binning):
     return binning
 
 
-def _resolve_bin_edges(spec, finite: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
+def _resolve_min_count(min_bin_size, n_rows: int) -> int:
+    """Resolve ``min_bin_size`` to an absolute per-bin sample floor (``0`` = off).
+
+    An int is the absolute count; a float in (0, 1] is a fraction of ``n_rows`` (rounded up, >= 1).
+    """
+    if min_bin_size is None:
+        return 0
+    if isinstance(min_bin_size, float):
+        return max(1, int(np.ceil(min_bin_size * max(int(n_rows), 1))))
+    return int(min_bin_size)
+
+
+def _merge_small_bins(finite: np.ndarray, interior: np.ndarray, min_count: int) -> np.ndarray:
+    """Drop interior edges so every surviving bin holds >= ``min_count`` training values.
+
+    Greedy left-to-right: accumulate adjacent bins until the running count reaches ``min_count``,
+    keep that boundary, and reset; a sparse trailing group is merged back into the previous bin.
+    Counts come from the training values only (no ``y``), so the merged edges stay leakage-safe and
+    deterministic. Used only by the computed ``quantile``/``uniform`` strategies -- explicit edge
+    arrays are honored exactly.
+    """
+    if interior.size == 0 or min_count <= 1:
+        return interior
+    counts = np.bincount(np.digitize(finite, interior), minlength=interior.size + 1)
+    kept: list[float] = []
+    run = 0
+    k = counts.size  # number of candidate bins = interior.size + 1
+    for i in range(k):
+        run += int(counts[i])
+        if run >= min_count and i < k - 1:  # close this group at the edge after bin i
+            kept.append(float(interior[i]))
+            run = 0
+    if run < min_count and kept:  # sparse trailing group -> merge into the previous bin
+        kept.pop()
+    return np.asarray(kept, dtype=float)
+
+
+def _resolve_bin_edges(spec, finite: np.ndarray, n_bins: int, min_count: int = 0) -> tuple:
     """Interior edges + bin count for one binned column from its resolved ``spec``.
 
-    A string ``spec`` computes edges from the column's finite values (the ``n_bins`` strategy); an
-    array ``spec`` is explicit boundaries (``np.unique``-sorted, the outer two dropped so
-    ``np.digitize`` clamps out-of-range to the end bins). Explicit edges set the bin count, so
+    A string ``spec`` computes edges from finite values (the ``n_bins`` strategy) and is
+    then subject to ``min_count`` small-bin merging; an array ``spec`` is explicit boundaries
+    (``np.unique``-sorted, the outer two dropped so ``np.digitize`` clamps out-of-range to the end
+    bins) and is used **exactly** -- explicit edges set the bin count and bypass ``min_count``, so
     ``n_bins`` is ignored for that column.
     """
     if isinstance(spec, str):
-        return _bin_edges(finite, n_bins, spec)
+        interior, nb = _bin_edges(finite, n_bins, spec)
+        if min_count > 1:
+            interior = _merge_small_bins(finite, interior, min_count)
+            nb = int(interior.size + 1)
+        return interior, nb
     uniq = np.unique(_as_edge_array(spec, "binning"))
     interior = uniq[1:-1]
     return interior.astype(float), int(interior.size + 1)
 
 
-def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binning) -> dict:
+def fit_numeric_plan(
+    Xdf, numeric_cols, mode: str, threshold, n_bins: int, binning, min_bin_size=None
+) -> dict:
     """Build the per-column numeric encoding plan from the **full** training frame.
 
     Returns ``{col: {"strategy", "edges", "n_bins"}}``. Bin edges come from feature values only
     (computed strategies) or from the user (explicit edges) -- never ``y`` -- so this is
     leakage-safe; the caller cross-fits the per-bin target statistic. ``binning`` may be a strategy
     string, an edge array, or a ``{column: strategy-or-edges}`` dict (dict keys must name numeric
-    columns being encoded).
+    columns being encoded). ``min_bin_size`` (int / float fraction / ``None``) merges sparse
+    bins for the computed ``quantile``/``uniform`` strategies; explicit edge arrays are left exact.
     """
     plan: dict = {}
     n_rows = len(Xdf)
+    min_count = _resolve_min_count(min_bin_size, n_rows)
     if isinstance(binning, dict):
         unknown = [c for c in binning if c not in numeric_cols]
         if unknown:
@@ -160,7 +208,7 @@ def fit_numeric_plan(Xdf, numeric_cols, mode: str, threshold, n_bins: int, binni
         if strategy == "direct":
             plan[c] = {"strategy": "direct", "edges": None, "n_bins": None}
         else:
-            edges, nb = _resolve_bin_edges(_col_binning_spec(c, binning), finite, n_bins)
+            edges, nb = _resolve_bin_edges(_col_binning_spec(c, binning), finite, n_bins, min_count)
             plan[c] = {"strategy": "bin", "edges": edges, "n_bins": nb}
     return plan
 

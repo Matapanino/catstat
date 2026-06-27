@@ -25,6 +25,13 @@ All notable changes to `catstat` are documented here. Format follows
   `binning` controls only *how* a column is binned; *whether* it is binned stays with `numeric` +
   `cardinality_threshold`. User-supplied edges depend on nothing in the data, so they are
   leakage-safe a fortiori (OOF reconstruction stays exact).
+- **`min_bin_size`** parameter for numeric encoding (`TargetEncoder`, `CountEncoder`,
+  `FrequencyEncoder`): merges adjacent sparse bins of the *computed* `"quantile"`/`"uniform"`
+  strategies so each surviving bin holds enough rows for a stable encoding. Accepts an int (absolute
+  count) or a float in (0, 1] (fraction of `n`); default `None` (off). Bins are merged greedily from
+  **training counts only** (no `y`), so merged edges stay leakage-safe and OOF reconstruction stays
+  exact. Explicit edge arrays are left exactly as given (`min_bin_size` refines only the automatic
+  strategies); inspect the result via `bin_edges_`.
 
 ## [0.3.0] — 2026-06-27
 

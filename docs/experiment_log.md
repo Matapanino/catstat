@@ -359,3 +359,24 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   vs leaky 0.108; edges ⊥ y.
 - Verdict: KEEP. No default changed, no new perf/quality verdict (no CV-quality claim). min-bin-size
   is the remaining numeric follow-up (PR2). → 0.4.0.
+
+## 2026-06-27 — min_bin_size: merge sparse bins (numeric) — 0.4.0 feature #3
+- Goal: a guardrail knob so computed quantile/uniform bins aren't left with too few rows (unstable
+  per-bin encoding). `min_bin_size` = int (absolute) / float (fraction of n) / None (off, default).
+- Design decision (confirmed with the user): `min_bin_size` refines only the *computed* strategies;
+  **explicit edge arrays are honored exactly** (each knob keeps a clean contract — explicit = full
+  control, min_bin_size = guardrail for auto binning). Within a dict, decided per column. Merge is a
+  deterministic greedy left-to-right pass over training-X bin counts (a sparse trailing group folds
+  back into the previous bin); a `min_bin_size` larger than n collapses to a single bin.
+- Change: `_numeric.py` (`_resolve_min_count` + `_merge_small_bins`; applied in `_resolve_bin_edges`
+  for string strategies only) + `_base._validate_numeric_params` (validate) + `_fit_numeric` (pass
+  through). New `min_bin_size=None` param on all three encoders. **Cross-fit / transform / _smoothing
+  untouched.** Branch `feat/numeric-min-bin-size`.
+- Result: green gate PASS (ruff + **238 passed / 11 GPU-skipped** + examples); +17 tests (merge
+  correctness, float fraction, explicit-bypass, dict per-column, single-bin, OOF reconstruction,
+  determinism, param round-trip, validation). `/sklearn-compat` PASS (verbatim/clone/set_params for
+  None/int/float on all 3 encoders; Pipeline/ColumnTransformer). `/leakage-audit` PASS — OOF exact
+  with `min_bin_size` (reconstruction), merged edges invariant to y, noise-trap OOF corr 0.026 vs
+  leaky 0.134.
+- Verdict: KEEP. Off by default. **Numeric arc (KI-030 + 2 follow-ups) complete.** → 0.4.0; next is
+  cutting the 0.4.0 release or adding more features.

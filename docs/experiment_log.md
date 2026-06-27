@@ -380,3 +380,17 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   leaky 0.134.
 - Verdict: KEEP. Off by default. **Numeric arc (KI-030 + 2 follow-ups) complete.** → 0.4.0; next is
   cutting the 0.4.0 release or adding more features.
+
+## 2026-06-27 — 0.4.0 released to PyPI (ops, not an experiment)
+- The numeric arc (KI-030 `Count`/`Frequency` binning + explicit/per-column bin edges + min_bin_size,
+  PRs #12–#14) shipped as **0.4.0** — backwards-compatible feature additions, no defaults changed.
+- release-prep: bumped pyproject + `__init__` to 0.4.0 (in sync), dated CHANGELOG `[0.4.0]`;
+  `python -m build` + `twine check` PASSED (sdist+wheel, `py.typed` present); clean-venv install
+  imports 0.4.0 and runs the new numeric features. Merged via PR #15.
+- Published: `v0.4.0` tagged + pushed; the **Release Actions workflow (Trusted Publishing)** built
+  and uploaded the wheel/sdist (Build ✓ + Publish ✓), **live on PyPI** (`pypi.org` latest = 0.4.0).
+  Local `twine upload` from the dev box fails (no TTY for the token; Trusted Publishing is
+  GH-Actions-only) — expected and irrelevant; the tag-triggered workflow is the publish path. GitHub
+  Release `v0.4.0` created from the `[0.4.0]` notes (first GH release since 0.1.1).
+- Carryover: Actions still warn on Node 20 deprecation (bump `actions/checkout@v4` etc.). Next
+  feature candidates: `smoothing="sigmoid"`, Laplace add-α for frequency, multiclass `max_classes`.

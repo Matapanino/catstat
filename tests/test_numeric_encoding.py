@@ -354,3 +354,108 @@ def test_binning_validation_raises(binning):
     X, y = make_numeric(n=200)
     with pytest.raises(ValueError):
         TargetEncoder(numeric="bin", binning=binning, random_state=0).fit(X, y)
+
+
+# ---- min_bin_size (merge sparse bins of the computed strategies) -------------------------------
+def _skewed(n=1000, seed=0):
+    """A right-skewed column whose uniform bins are very uneven (a sparse tail)."""
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({"x": rng.exponential(size=n)}), rng.normal(size=n)
+
+
+def _bin_sizes(enc, X, col="x"):
+    e = enc.bin_edges_[col]
+    return np.bincount(np.digitize(X[col].to_numpy(float), e), minlength=e.size + 1)
+
+
+def test_min_bin_size_off_by_default_is_backward_compatible():
+    X, y = _skewed()
+    a = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10,
+                      random_state=0).fit(X, y)
+    b = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10, min_bin_size=None,
+                      random_state=0).fit(X, y)
+    np.testing.assert_array_equal(a.bin_edges_["x"], b.bin_edges_["x"])
+
+
+def test_min_bin_size_merges_sparse_bins():
+    X, y = _skewed()
+    base = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10,
+                         random_state=0).fit(X, y)
+    assert (_bin_sizes(base, X) < 50).any()  # precondition: uniform leaves sparse bins
+    enc = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10, min_bin_size=50,
+                        random_state=0).fit(X, y)
+    assert (_bin_sizes(enc, X) >= 50).all()  # every surviving bin meets the floor
+    assert enc.bin_edges_["x"].size < base.bin_edges_["x"].size  # sparse bins were merged away
+
+
+def test_min_bin_size_float_is_fraction_of_n():
+    X, y = _skewed(n=1000)
+    enc = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=20, min_bin_size=0.1,
+                        random_state=0).fit(X, y)
+    assert (_bin_sizes(enc, X) >= 100).all()  # 0.1 * 1000 = 100
+
+
+def test_min_bin_size_leaves_explicit_edges_exact():
+    X, y = _skewed()
+    enc = TargetEncoder(cols=["x"], numeric="bin", binning=[0.0, 0.01, 0.02, 10.0],
+                        min_bin_size=300, random_state=0).fit(X, y)
+    np.testing.assert_allclose(enc.bin_edges_["x"], [0.01, 0.02])  # explicit -> untouched
+
+
+def test_min_bin_size_dict_refines_strategy_columns_only():
+    rng = np.random.default_rng(3)
+    X = pd.DataFrame({"a": rng.exponential(size=1000), "b": rng.exponential(size=1000)})
+    y = rng.normal(size=1000)
+    enc = TargetEncoder(numeric="bin", binning={"a": [0.0, 0.01, 0.02, 10.0], "b": "uniform"},
+                        n_bins=10, min_bin_size=50, random_state=0).fit(X, y)
+    np.testing.assert_allclose(enc.bin_edges_["a"], [0.01, 0.02])  # explicit -> exact
+    assert (_bin_sizes(enc, X, "b") >= 50).all()  # uniform strategy -> refined
+
+
+def test_min_bin_size_larger_than_n_yields_single_bin():
+    X, y = _skewed(n=300)
+    enc = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10,
+                        min_bin_size=10_000, smooth=0.0, random_state=0, output="numpy")
+    out = enc.fit_transform(X, y)
+    assert enc.bin_edges_["x"].size == 0  # nothing meets the floor -> one bin
+    assert np.isfinite(out).all()
+
+
+def test_min_bin_size_oof_reconstruction_is_exact():
+    X, y = _skewed(n=1600, seed=4)
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    enc = TargetEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=20, min_bin_size=80,
+                        smooth=0.0, cv=kf, output="numpy")
+    oof = enc.fit_transform(X, y).ravel()
+    edges = enc.bin_edges_["x"]  # merged edges fixed from full-train X counts (_|_ y)
+    binid = np.clip(np.digitize(X["x"].to_numpy(float), edges), 0, edges.size)
+    gmean = y.mean()
+    recon = np.empty(len(y))
+    for tr, te in kf.split(X, y):
+        means = pd.DataFrame({"b": binid[tr], "y": y[tr]}).groupby("b")["y"].mean()
+        for i in te:
+            recon[i] = means.get(binid[i], gmean)
+    assert np.nanmax(np.abs(oof - recon)) < 1e-9
+
+
+def test_min_bin_size_is_deterministic():
+    X, y = _skewed()
+    kw = dict(cols=["x"], numeric="bin", binning="uniform", n_bins=15, min_bin_size=40,
+              random_state=0)
+    a = TargetEncoder(**kw).fit(X, y).bin_edges_["x"]
+    b = TargetEncoder(**kw).fit(X, y).bin_edges_["x"]
+    np.testing.assert_array_equal(a, b)
+
+
+def test_min_bin_size_param_roundtrips_and_clones():
+    from sklearn.base import clone
+    for mbs in (50, 0.1, None):
+        enc = TargetEncoder(numeric="bin", min_bin_size=mbs, random_state=0)
+        assert clone(enc).get_params()["min_bin_size"] == mbs
+
+
+@pytest.mark.parametrize("mbs", [0, -1, 1.5, 2.0, "x", True])
+def test_min_bin_size_validation_raises(mbs):
+    X, y = make_numeric(n=200)
+    with pytest.raises(ValueError):
+        TargetEncoder(numeric="bin", min_bin_size=mbs, random_state=0).fit(X, y)

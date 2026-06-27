@@ -192,3 +192,24 @@ def test_numeric_explicit_edges_params_roundtrip():
         assert clone(enc).get_params()["binning"] == [0.0, 1.0, 2.0]
         encd = enc_cls(numeric="auto", binning={"a": [0, 1, 2], "b": "uniform"})
         assert clone(encd).get_params()["binning"] == {"a": [0, 1, 2], "b": "uniform"}
+
+
+def test_numeric_min_bin_size_merges_sparse_bins():
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"x": rng.exponential(size=1000)})  # skewed -> sparse uniform tail bins
+    ce = CountEncoder(cols=["x"], numeric="bin", binning="uniform", n_bins=10, min_bin_size=50,
+                      output="numpy").fit(X)
+    e = ce.bin_edges_["x"]
+    binid = np.clip(np.digitize(X["x"].to_numpy(float), e), 0, e.size)
+    sizes = np.bincount(binid, minlength=e.size + 1)
+    assert (sizes >= 50).all()  # every surviving bin meets the floor
+    out = ce.transform(X).ravel()  # each row's count is its merged bin's size
+    expected = pd.Series(binid).map(pd.Series(binid).value_counts()).to_numpy().astype(float)
+    assert np.allclose(out, expected)
+
+
+def test_numeric_min_bin_size_param_roundtrip():
+    for enc_cls in (CountEncoder, FrequencyEncoder):
+        for mbs in (50, 0.05, None):
+            enc = enc_cls(numeric="bin", min_bin_size=mbs)
+            assert clone(enc).get_params()["min_bin_size"] == mbs

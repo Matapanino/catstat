@@ -23,9 +23,11 @@ class CountEncoder(_BaseStatEncoder):
     (``n_bins`` is then ignored for that column), and ``binning`` controls only *how* a column is
     binned (*whether* stays with ``numeric`` + ``cardinality_threshold``). Bin edges come from
     feature values only (there is no ``y``), so they are a plain function of the training column (or
-    of the user's explicit edges). ``cardinality_threshold`` accepts an int (absolute unique count)
-    or a float in (0, 1] (unique/n ratio). Inspect the fitted ``numeric_cols_`` /
-    ``numeric_strategy_`` / ``bin_edges_`` attrs.
+    of the user's explicit edges). ``min_bin_size`` (an int count, or a float fraction of ``n``)
+    merges adjacent sparse bins of the *computed* ``quantile``/``uniform`` strategies; explicit edge
+    arrays are left exact. ``cardinality_threshold`` accepts an int (absolute unique count) or a
+    float in (0, 1] (unique/n ratio). Inspect the fitted ``numeric_cols_`` / ``numeric_strategy_`` /
+    ``bin_edges_`` attrs.
     """
 
     def __init__(
@@ -40,6 +42,7 @@ class CountEncoder(_BaseStatEncoder):
         cardinality_threshold=10,
         n_bins=10,
         binning="quantile",
+        min_bin_size=None,
     ):
         self.cols = cols
         self.normalize = normalize
@@ -51,6 +54,7 @@ class CountEncoder(_BaseStatEncoder):
         self.cardinality_threshold = cardinality_threshold
         self.n_bins = n_bins
         self.binning = binning
+        self.min_bin_size = min_bin_size
 
     def _is_supervised(self) -> bool:
         return False

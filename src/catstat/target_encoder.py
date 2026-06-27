@@ -28,9 +28,11 @@ class TargetEncoder(_BaseStatEncoder):
     ``n_bins`` is ignored for that column, and ``binning`` only controls *how* a column is binned --
     *whether* it is binned stays with ``numeric`` + ``cardinality_threshold``. Bin edges come from
     feature values only (computed strategies) or from the user (explicit edges) -- never ``y`` -- so
-    the per-bin encoding stays out-of-fold. ``cardinality_threshold`` takes an int (absolute unique
-    count) or a float in (0, 1] (unique/n ratio). Inspect the fitted ``numeric_strategy_`` /
-    ``bin_edges_`` attrs.
+    the per-bin encoding stays out-of-fold. ``min_bin_size`` (an int count, or a float fraction of
+    ``n``) merges adjacent sparse bins of the *computed* ``quantile``/``uniform`` strategies so each
+    surviving bin holds enough rows for a stable encoding; explicit edge arrays are left exact.
+    ``cardinality_threshold`` takes an int (absolute unique count) or a float in (0, 1] (unique/n
+    ratio). Inspect the fitted ``numeric_strategy_`` / ``bin_edges_`` attrs.
 
     ``interactions`` adds one joint target-encoded column per group: e.g.
     ``interactions=[["a", "b"]]`` encodes the ``(a, b)`` pair as one category (named ``"a+b"``) on
@@ -61,6 +63,7 @@ class TargetEncoder(_BaseStatEncoder):
         cardinality_threshold=10,
         n_bins=10,
         binning="quantile",
+        min_bin_size=None,
         interactions=None,
     ):
         self.cols = cols
@@ -81,6 +84,7 @@ class TargetEncoder(_BaseStatEncoder):
         self.cardinality_threshold = cardinality_threshold
         self.n_bins = n_bins
         self.binning = binning
+        self.min_bin_size = min_bin_size
         self.interactions = interactions
 
     def _is_supervised(self) -> bool:

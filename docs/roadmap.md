@@ -114,7 +114,12 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   a `{col: strategy-or-edges}` dict; explicit edges set the bin count (`n_bins` ignored), and
   `binning` controls *how* not *whether* (routing stays with `numeric`+`cardinality_threshold`).
   Logic isolated to `_numeric.py` (cross-fit untouched); OOF stays exact, sklearn-compat (list/dict
-  `clone`) + leakage-audit PASS. Branch `feat/numeric-explicit-bin-edges`. **Follow-up:** min-bin-size.
+  `clone`) + leakage-audit PASS. Branch `feat/numeric-explicit-bin-edges`.
+- ✅ **`min_bin_size`** (KI-030 follow-up) — **done (2026-06-27, targets 0.4.0)**: merges adjacent
+  sparse bins of the computed `quantile`/`uniform` strategies (greedy, from training X counts only)
+  so each surviving bin holds enough rows; explicit edges left exact. int / float-fraction / `None`
+  (off). All three encoders; OOF exact (edges ⊥ y), sklearn-compat + leakage-audit PASS. Branch
+  `feat/numeric-min-bin-size`. **Numeric follow-ups complete.**
 
 ## Recommended implementation order (PR-sized)
 - ✅ **PR1–PR9** (packaging → validation/stats → CPU backend → mean encoder → binary/multiclass →
@@ -161,7 +166,9 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
 > **0.4.0 features so far (unreleased, accumulating before a release):** (1) `Count`/`Frequency`
 > numeric binning (KI-030, merged `feat/numeric-count-frequency`) — per-bin count / normalized-
 > histogram frequency; (2) **explicit / per-column bin edges** (`binning=` edge array or
-> `{col: strategy-or-edges}` dict, all three encoders, branch `feat/numeric-explicit-bin-edges`).
-> Both reuse the shared `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0
-> `release-prep`. **Next:** **min-bin-size knob** (merge sparse bins, from X — the remaining numeric
-> follow-up), then cut 0.4.0; **PR-D** (GPU on-device) stays a niche lever with `auto` off (KI-020).
+> `{col: strategy-or-edges}` dict, merged `feat/numeric-explicit-bin-edges`); (3) **`min_bin_size`**
+> (merge sparse computed bins from X, branch `feat/numeric-min-bin-size`). All reuse the shared
+> `_numeric.py` path; pyproject/`__init__` version bump deferred to the 0.4.0 `release-prep`. The
+> **numeric follow-ups are complete**. **Next:** cut **0.4.0** (`release-prep`: version bump +
+> CHANGELOG `[Unreleased]`→`[0.4.0]`) when ready, or add more features; **PR-D** (GPU on-device)
+> stays a niche lever with `auto` off (KI-020).

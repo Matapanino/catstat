@@ -269,6 +269,15 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 f"cardinality_threshold={ct!r} must be an int >= 1 (absolute unique count) "
                 "or a float in (0, 1] (unique/n ratio)."
             )
+        mbs = getattr(self, "min_bin_size", None)
+        if mbs is not None:
+            ok_i = isinstance(mbs, (int, np.integer)) and not isinstance(mbs, bool) and mbs >= 1
+            ok_f = isinstance(mbs, float) and 0.0 < mbs <= 1.0
+            if not (ok_i or ok_f):
+                raise ValueError(
+                    f"min_bin_size={mbs!r} must be None, an int >= 1 (absolute), or a float in "
+                    "(0, 1] (fraction of n)."
+                )
         return mode
 
     def _fit_numeric(self, Xdf, numeric_mode: str) -> None:
@@ -289,6 +298,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 self.cardinality_threshold,
                 self.n_bins,
                 self.binning,
+                getattr(self, "min_bin_size", None),
             )
         self._numeric_plan_ = plan
         self.numeric_cols_ = list(plan)

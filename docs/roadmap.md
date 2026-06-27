@@ -103,20 +103,25 @@ verdict-backed), pending the maintainer's `v0.2.0` tag. Publishing is tag-driven
   **M0 bootstrap (2026-06-26)**.
 - ✅ **Phase 2 (CPU + GPU validated)** 2026-06-26: var/std/median/min/max, combination mode,
   GPU backend `backends/_gpu.py` **validated CPU/GPU-allclose on a Colab T4**, CI, Colab loop, `git`.
-- **Perf arc (2026-06-26, profiling-driven).** ✅ CPU OOF is now single-pass: `kfold_mean_oof_fast`
-  (complement subtraction) replaces the per-fold group-by for the pure-mean kfold case — 2.2–3.4×
-  faster (allclose; `docs/verdicts/2026-06-26-pr-b-complement-subtraction-mean-verdict.md`). The same
-  backend-agnostic kernel ports on-device to remove the per-fold host↔device round-trips (KI-020).
+- **Perf arc (2026-06-26→27, profiling-driven).** ✅ CPU OOF is single-pass via complement
+  subtraction: `kfold_mean_oof_fast` replaced the per-fold group-by for pure-mean (2.2–3.4×;
+  `docs/verdicts/2026-06-26-pr-b-complement-subtraction-mean-verdict.md`). ✅ **var/std** now ride the
+  same kernel (shared complement moments; ddof=1 + complement-global fallback) with a **hybrid** gate
+  that keeps median/min/max/skew/custom on the slow loop — 2.7–2.8× on var & mean+var+std, ~1.5× mixed
+  (`docs/verdicts/2026-06-27-pr-c-additive-var-std-verdict.md`). The kernel also ports on-device to
+  remove per-fold host↔device round-trips (KI-020). **Next CPU lever:** integer-code factorize-once +
+  array gather on the transform path (`docs/notes/2026-06-27-cuml-vs-sklearn-te-levers.md`, KI-031).
 - **Phase 2 — remaining.** GPU *performance* (on-device keys/folds; KI-020) and `combination` on
   GPU (KI-018) — both optional, gated behind a fresh crossover verdict before re-enabling `auto`.
 - **Phase 3.** quantile/skew/custom + ordered/LOO + `set_output("polars")` + PyPI release.
 
 ## "Next" pointer (update each session)
-> **Next task:** **0.2.0 — opt-in numeric-column target encoding is implemented & green** (branch
-> `feat/numeric-target-encoding`): direct / quantile-binned / auto-routed numeric TE, leakage-audited
-> (edges ⊥ y; binned OOF exact), sklearn-compat, empirically validated (CV R² 0.034 → 0.91), defaults
-> set by verdict, version bumped to **0.2.0** + CHANGELOG. **Remaining:** (1) maintainer tags
-> `v0.2.0` to publish via Trusted Publishing; (2) maintainer runs `scripts/colab_gpu_parity.sh` to
-> confirm CPU/GPU allclose on the new binned/direct cases (host-side numpy → expected); (3) optional:
-> numeric binning for `Count`/`Frequency` (KI-030). Still maintainer-only from 0.1.1: enable GitHub
-> Pages. Optional larger follow-up: KI-020 GPU on-device perf (needs a fresh Colab crossover verdict).
+> **Next task:** **PR-C done (2026-06-27)** — var/std on the single-pass kernel + hybrid gate
+> (2.7–2.8× var & mean+var+std, ~1.5× mixed; leakage-audited; branch `feat/perf-additive-var-std`).
+> **Next, in order:** (1) **interactions** `interactions: list[list[str]]` → one joint TE column per
+> group (mostly `_units` plumbing — the additive kernel already handles multi-col units);
+> (2) **integer-code gather** — factorize-once + numpy gather on the transform path (~52%
+> `get_indexer`), which also unblocks GPU `combination` (KI-018 / KI-031); (3) **PR-D** GPU on-device
+> kernel + a fresh Colab crossover before re-enabling `auto` (KI-020). Maintainer-only carryover:
+> tag `v0.2.0` to publish; enable GitHub Pages; optional numeric binning for `Count`/`Frequency`
+> (KI-030).

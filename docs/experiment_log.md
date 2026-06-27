@@ -197,3 +197,22 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Verdict: docs/verdicts/2026-06-26-numeric-te-verdict.md
 
 <!-- Append new experiments below this line. Never edit or delete prior entries. -->
+
+## 2026-06-27 — extend the single-pass OOF kernel to var/std + hybrid gate (PR-C)
+- Hypothesis: the complement-subtraction kernel already accumulates per-(fold,key) sum-of-squares, so
+  var/std are a cheap finalize from the same complement moments — sample var `(ss−s²/cc)/(cc−1)`,
+  std `√var` (ddof=1) — with a per-fold complement-global fallback when complement count
+  `< max(min_samples,1)` or `< 2` (singleton variance undefined). A hybrid gate runs additive stats
+  fast and leaves median/min/max/skew/custom on the per-fold loop.
+- Setup: pandas 1.5.2 / numpy 1.23.5 / sklearn 1.2.0; in-process **interleaved** before/after
+  (before = pre-PR gate `{"mean"}`: mean fast, var/std slow), 7 reps, n=200k & 1M, 2 cols, cv=5;
+  `tests/test_additive_fast_path.py` 48-config equivalence matrix {var,std}×{min_samples 1/2/5}×
+  {missing,unknown}×{single,combination} + a hybrid mixed-stat case; independent pure-pandas leakage
+  reconstruction; `/leakage-audit`.
+- Result: KEEP — 2.67–2.82× on var-only and mean+var+std, 1.47–1.49× mixed (median stays slow);
+  output allclose to the per-fold path (≤3.4e-13 var / 7.1e-15 std; allclose-not-bitwise, invariant
+  #2), noise-trap OOF corr −0.004 (signal +0.445), asymmetry 20.5; 167 passed, 8 skipped; ruff clean.
+  No default changed; `_smoothing`/`_aggregations` untouched. Within the fast path a unit's
+  mean/var/std share one factorize + one composite bincount.
+- Verdict: docs/verdicts/2026-06-27-pr-c-additive-var-std-verdict.md. Research note (next lever):
+  docs/notes/2026-06-27-cuml-vs-sklearn-te-levers.md.

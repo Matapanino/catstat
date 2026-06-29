@@ -44,6 +44,39 @@ Repository = "https://github.com/Matapanino/catstat"
 packages = ["src/catstat"]
 force-include = { "src/catstat/py.typed" = "catstat/py.typed" }
 
+[tool.hatch.build.targets.sdist]
+# Release-safety boundary: ship only public source + packaging metadata + tests.
+# `include` is an allowlist (the authoritative boundary); `exclude` re-states the
+# specific risky paths for clarity/defense-in-depth. Everything not listed here --
+# assistant prompts/CLAUDE.md/.claude, .github, internal docs (verdicts, notes,
+# proposals, next-session-prompt), benchmark result ledgers, scripts, generated
+# artifacts, caches, and build/dist outputs -- stays out of the published sdist.
+include = [
+    "src/catstat",
+    "tests",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+]
+exclude = [
+    "CLAUDE.md",
+    ".claude",
+    ".github",
+    "docs",
+    "benchmarks",
+    "scripts",
+    "site",
+    "dist",
+    "build",
+    "**/__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".coverage",
+    "*.jsonl",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Put the src layout (for `catstat`) and the repo root (for `tests.conftest`) on sys.path so the

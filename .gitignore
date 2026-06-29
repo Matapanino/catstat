@@ -23,3 +23,6 @@ site/
 .venv/
 venv/
 .DS_Store
+
+# Local Claude Code config (keep private, e.g. .claude/settings.local.json).
+.claude/

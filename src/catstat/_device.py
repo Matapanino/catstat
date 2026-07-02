@@ -39,6 +39,11 @@ DEVICE_PENDING_STATS = frozenset({"median", "min", "max"})
 
 def check_device_fences(est, specs) -> None:
     """Loud, early errors for the device-input combinations that are not implemented (yet)."""
+    if est.backend == "cpu":  # precedence over the output fence: the intent error comes first
+        raise ValueError(
+            "backend='cpu' with a cuDF input would require a silent device->host transfer. "
+            "Convert explicitly with X.to_pandas(), or use backend='auto'/'gpu'."
+        )
     if est.output != "numpy":
         raise NotImplementedError(
             f"output={est.output!r} with cuDF input is not supported yet (cuDF output lands "

@@ -24,8 +24,20 @@ def _sh(cmd, **kw):
 def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
     _sh(["tar", "xzf", "/content/catstat.tar.gz", "-C", str(WORK)])
-    _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x",
-         "pytest", "scikit-learn"])
+    # Colab ships a dist-packages *regular* package named `tests`, which shadows the repo's
+    # namespace-package tests/ dir (regular beats namespace anywhere on sys.path). Making the
+    # repo's tests/ a regular package puts it first (cwd) -- VM-side only, not in the repo.
+    (WORK / "tests" / "__init__.py").touch()
+    # Prefer the image's preinstalled RAPIDS (guaranteed driver-compatible); pip-install only
+    # when absent. A blind `pip install cudf-cu12` can pull wheels newer than the VM driver
+    # supports (cudaErrorInsufficientDriver, seen 2026-07-02).
+    probe = subprocess.run(
+        [sys.executable, "-c", "import cudf, cupy; cupy.zeros(1).sum()"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
+    _sh([sys.executable, "-m", "pip", "install", "-q", "pytest", "scikit-learn"])
     env_path = f"{WORK}/src"
     res = _sh(
         [sys.executable, "-m", "pytest", "tests/", "-q", "-rf", "--tb=short",

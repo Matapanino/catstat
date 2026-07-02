@@ -78,6 +78,10 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 - ✅ **Ergonomics arc 2 (2026-07-02)**: `laplace_alpha` on `CountEncoder`/`FrequencyEncoder`
   (default off) — add-α smoothing for frequencies with the `α/(n+αK)` unseen fallback; counts
   stay exact (raises). Host + device paths share the formula. `test_laplace_frequency.py`.
+- ✅ **Ergonomics arc 3 (2026-07-02)**: `max_classes` on `TargetEncoder` — caps the multiclass
+  one-vs-rest expansion to the most frequent classes (KI-016 resolved); `encoded_classes_` +
+  aligned `target_mean_`; width warning at K>100 uncapped; host + device expansion loops share
+  the subset. Leakage audit PASS. `test_max_classes.py`.
 - ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
   marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
   threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**

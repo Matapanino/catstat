@@ -47,6 +47,12 @@ class TargetEncoder(_BaseStatEncoder):
     their defaults ``k=20, f=10``; singletons take the prior outright, matching their override).
     ``"sigmoid"`` is kfold-only (no loo/ordered analogue).
 
+    ``max_classes`` (default ``None`` = all) caps the multiclass one-vs-rest expansion to the
+    ``max_classes`` most frequent training classes (KI-016 column explosion). ``classes_`` still
+    lists every observed class; ``encoded_classes_`` (and ``target_mean_``, aligned to it) lists
+    the ones that got columns. Rows of a dropped class simply contribute "rest" to the kept
+    columns. Ignored for binary/continuous targets.
+
     Parameters mirror ``docs/proposals/target-encoder-library-design.md`` §3.
     """
 
@@ -72,6 +78,7 @@ class TargetEncoder(_BaseStatEncoder):
         binning="quantile",
         min_bin_size=None,
         interactions=None,
+        max_classes=None,
     ):
         self.cols = cols
         self.stats = stats
@@ -93,6 +100,7 @@ class TargetEncoder(_BaseStatEncoder):
         self.binning = binning
         self.min_bin_size = min_bin_size
         self.interactions = interactions
+        self.max_classes = max_classes
 
     def _is_supervised(self) -> bool:
         return True

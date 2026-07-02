@@ -233,8 +233,8 @@ def _fit_target_stats_device(est, feat, codes_act, active, uniques, n_cat, y, ms
     # binary / multiclass: mean (per class) and woe (binary) from binarized device passes
     if est.target_type_ == "binary":
         class_vectors = [(None, est.classes_[1])]
-    else:
-        class_vectors = [(c, c) for c in est.classes_]
+    else:  # multiclass: encoded classes only (max_classes may cap)
+        class_vectors = [(c, c) for c in est.encoded_classes_]
     for class_label, pos in class_vectors:
         yb = _gpu.binarize_device(y, pos)
         yb_act = yb[active] if active is not None else yb

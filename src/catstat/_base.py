@@ -7,6 +7,7 @@ knows pandas vs cuDF. Subclasses define the sklearn ``__init__`` params and two 
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -169,10 +170,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             self.classes_ = (
                 np.unique(y_arr) if self.target_type_ in ("binary", "multiclass") else None
             )
+            self.encoded_classes_ = self._resolve_encoded_classes(y_arr)
         else:
             y_arr = None
             self.target_type_ = None
             self.classes_ = None
+            self.encoded_classes_ = None
 
         for spec in self._specs:
             if spec.continuous_only and self.target_type_ != "continuous":
@@ -207,7 +210,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 )
 
         self._columns_meta = build_columns(
-            [name for name, _ in self._units], self._specs, self.target_type_, self.classes_
+            [name for name, _ in self._units],
+            self._specs,
+            self.target_type_,
+            self.encoded_classes_,
         )
         self.feature_names_out_ = np.asarray([m.name for m in self._columns_meta], dtype=object)
 
@@ -247,6 +253,35 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._set_target_mean()
         return self
 
+    def _resolve_encoded_classes(self, y_arr):
+        """The classes that get one-vs-rest columns (``encoded_classes_``).
+
+        All of ``classes_`` unless the target is multiclass and ``max_classes`` caps them to the
+        most frequent training classes (KI-016 column explosion); ties break toward the earlier
+        class, and the kept classes are presented in ``classes_`` order so the column layout is
+        stable. Without a cap, a very wide multiclass target warns.
+        """
+        if self.classes_ is None or self.target_type_ != "multiclass":
+            return self.classes_
+        mc = getattr(self, "max_classes", None)
+        k = len(self.classes_)
+        if mc is None:
+            if k > 100:
+                warnings.warn(
+                    f"multiclass target with {k} classes expands to {k} columns per "
+                    "class-expanded stat; set max_classes to cap the output width.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return self.classes_
+        if isinstance(mc, bool) or not isinstance(mc, (int, np.integer)) or mc < 1:
+            raise ValueError(f"max_classes={mc!r} must be None or an int >= 1.")
+        if k <= int(mc):
+            return self.classes_
+        _, counts = np.unique(y_arr, return_counts=True)  # np.unique sorts -> aligned to classes_
+        keep = np.sort(np.argsort(-counts, kind="stable")[: int(mc)])
+        return self.classes_[keep]
+
     def _add_interaction_units(self):
         """Append one joint encoding unit per ``interactions`` group (additive to the base units).
 
@@ -285,7 +320,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         f0 = self._units[0][0]
         if self.target_type_ == "multiclass":
             self.target_mean_ = np.asarray(
-                [self._fit_tables[(f0, "mean", c)].fallback for c in self.classes_], dtype=float
+                [self._fit_tables[(f0, "mean", c)].fallback for c in self.encoded_classes_],
+                dtype=float,
             )
         else:
             self.target_mean_ = float(self._fit_tables[(f0, "mean", None)].fallback)
@@ -401,8 +437,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         yb = (y_sel == self.classes_[1]).astype(float)
                         s, fb = fit_mean_encoding(keys, yb, self.smooth, bk, shift=False)
                         entries.append(((feat, "mean", None), s, fb))
-                    else:  # multiclass: one-vs-rest per global class
-                        for c in self.classes_:
+                    else:  # multiclass: one-vs-rest per encoded class (max_classes may cap)
+                        for c in self.encoded_classes_:
                             yc = (y_sel == c).astype(float)
                             s, fb = fit_mean_encoding(keys, yc, self.smooth, bk, shift=False)
                             entries.append(((feat, "mean", c), s, fb))

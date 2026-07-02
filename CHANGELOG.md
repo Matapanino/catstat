@@ -14,6 +14,10 @@ All notable changes to `catstat` are documented here. Format follows
   smoothing for **frequencies** — `freq = (count + α)/(n + α·K)`; an unseen category falls back
   to `α/(n + α·K)` instead of 0.0. Counts stay exact (honesty rule): `normalize=False` with
   `laplace_alpha > 0` raises.
+- **`max_classes`** on `TargetEncoder` (default `None` = all): caps the multiclass one-vs-rest
+  expansion to the most frequent training classes (KI-016 column explosion). `classes_` still
+  lists every observed class; the new `encoded_classes_` (and `target_mean_`, aligned to it)
+  lists the ones that got columns. An uncapped target with >100 classes now warns.
 
 ## [0.5.0] — 2026-07-02
 

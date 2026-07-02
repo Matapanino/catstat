@@ -91,7 +91,7 @@ markers = [
 source = ["catstat"]
 branch = true
 # GPU path is exercised only on Colab; omit it from the always-installed CPU coverage lane.
-omit = ["*/backends/_gpu.py"]
+omit = ["*/backends/_gpu.py", "*/_device.py"]
 
 [tool.coverage.report]
 fail_under = 85

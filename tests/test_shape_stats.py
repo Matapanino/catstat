@@ -37,6 +37,24 @@ def test_offset_stability_matches_pandas(stat):
     assert np.allclose(out, ref, rtol=1e-5, atol=1e-5)
 
 
+def test_mean_var_offset_matches_pandas():
+    """y = 1e9 + N(0,1): the fit path's shifted reductions must stay allclose to pandas'
+    two-pass var and the exact group mean (the unshifted sums cancel catastrophically -- and
+    differently per backend, which broke CPU/GPU parity at large offsets)."""
+    X, _ = make_regression(n=2000, k=8, seed=9)
+    rng = np.random.default_rng(9)
+    y = 1e9 + rng.normal(size=len(X))
+    enc = TargetEncoder(cols=["g"], stats=["mean", "var"], smooth=0.0, output="numpy").fit(X, y)
+    out = enc.transform(X)
+    g = pd.DataFrame({"g": X["g"], "y": y}).groupby("g")["y"]
+    assert np.allclose(out[:, 0], X["g"].map(g.mean()).to_numpy(), rtol=1e-12)
+    assert np.allclose(out[:, 1], X["g"].map(g.var(ddof=1)).to_numpy(), rtol=1e-6, atol=1e-6)
+    # the EB weights are the fragile part: 'auto' must stay finite and within the data's range
+    enc_auto = TargetEncoder(cols=["g"], stats=["mean"], output="numpy").fit(X, y)
+    mcol = enc_auto.transform(X).ravel()
+    assert np.isfinite(mcol).all() and mcol.min() >= y.min() and mcol.max() <= y.max()
+
+
 @pytest.mark.parametrize("stat", ["skew", "kurt"])
 @pytest.mark.parametrize("scale", [1.0, 1e9])
 def test_constant_category_is_zero(stat, scale):

@@ -38,18 +38,14 @@ def category_reduce(keys: np.ndarray, y: np.ndarray | None = None) -> pd.DataFra
 
 
 def category_agg(keys: np.ndarray, y: np.ndarray, stat: str) -> pd.Series:
-    """Per-category dispersion/order statistic of ``y`` (var/std/median/min/max).
+    """Per-category order statistic of ``y`` (median/min/max).
 
-    Returns a Series indexed by category key; ``var``/``std`` are sample (ddof=1) and are NaN for
-    singleton categories (the caller falls those back to the global statistic). Shape stats
-    (skew/kurt) do not route here -- they are reconstructed from :func:`category_moments`.
+    Returns a Series indexed by category key. Dispersion/shape stats (var/std/skew/kurt) do not
+    route here -- they are reconstructed from :func:`category_moments` (shifted power sums), so
+    neither backend's own var/skew implementation is relied on.
     """
     df = pd.DataFrame({"k": pd.Series(keys), "y": np.asarray(y, dtype=float)})
     g = df.groupby("k", sort=False)["y"]
-    if stat == "var":
-        return g.var(ddof=1)
-    if stat == "std":
-        return g.std(ddof=1)
     if stat == "median":
         return g.median()
     if stat == "min":

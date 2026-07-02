@@ -54,6 +54,30 @@ def test_oof_moment_tables_gpu_matches_numpy(order):  # pragma: no cover - GPU o
             assert np.allclose(c, g, rtol=1e-9, atol=1e-9)
 
 
+def test_cpu_gpu_parity_large_offset():  # pragma: no cover - GPU only
+    """y ~ 1e9 +- 1: fit AND fit_transform must agree across backends -- the fit path reduces
+    about the global mean, so neither backend's cancellation pattern leaks into the encodings."""
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(6)
+    n, k = 200_000, 5_000
+    X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
+    y = 1e9 + rng.normal(size=n)
+
+    kw = dict(
+        cols=["g"], stats=["mean", "var", "skew", "kurt"], cv=5, random_state=0, output="numpy"
+    )
+    a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
+    b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
+    assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-5)
+
+    a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
+    b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
+    assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-5, equal_nan=True)
+
+
 def test_cpu_gpu_parity_binary_woe():  # pragma: no cover - GPU only
     """WOE rides the mean's GPU reduce (binarized y), so CPU/GPU agree at allclose."""
     import pandas as pd

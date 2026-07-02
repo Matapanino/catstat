@@ -443,18 +443,18 @@ def category_moments(keys: np.ndarray, y: np.ndarray) -> pd.DataFrame:
 
 
 def category_agg(keys: np.ndarray, y: np.ndarray, stat: str) -> pd.Series:
-    """GPU dispersion/order group-by; returns a pandas Series (host)."""
+    """GPU order-stat group-by (median/min/max); returns a pandas Series (host).
+
+    Dispersion/shape stats route through :func:`category_moments` instead -- cuDF's one-pass
+    ``var`` cancels catastrophically at ``|mean| >> sd`` (and differently from pandas).
+    """
     import cudf
     import cupy as cp
 
     key_arr, had_missing = _to_nullable(keys)
     gdf = cudf.DataFrame({"k": cudf.Series(key_arr), "y": cp.asarray(y, dtype="float64")})
     g = gdf.groupby("k", sort=False, dropna=False)["y"]
-    if stat == "var":
-        res = g.var(ddof=1)
-    elif stat == "std":
-        res = g.std(ddof=1)
-    elif stat == "median":
+    if stat == "median":
         res = g.median()
     elif stat == "min":
         res = g.min()

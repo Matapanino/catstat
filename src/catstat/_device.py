@@ -117,12 +117,13 @@ def _active_codes(codes, missing, handle_missing):
 
 
 def _unit_y_plan(est, items):
-    """(order, wants_shift) for a unit's stats: shape stats force order-4 + the stabilizing
-    shift; var/std also benefit from the shift (shift-invariant, avoids cancellation)."""
+    """(order, wants_shift) for a unit's stats: shape stats force order-4. Continuous targets
+    are always shifted by the global mean (exact for the shift-invariant stats, un-shifted for
+    the mean) -- it keeps the moment reconstruction and EB weights stable at |mean| >> sd, on
+    both backends identically."""
     stats = {meta.stat for _j, meta in items}
     order = 4 if stats & _SHAPE_STATS else 2
-    wants_shift = bool(stats & ({"var", "std"} | _SHAPE_STATS))
-    return order, wants_shift
+    return order, True
 
 
 def _global_var(cnt_sum, s1_sum, s2_sum) -> float:

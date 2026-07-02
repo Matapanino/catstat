@@ -94,18 +94,27 @@ def fit_stat_encoding(
     if backend is None:
         backend = _cpu
     y = np.asarray(y, dtype=float)
-    if stat in _SHAPE_MIN_N:
-        # shape stats (skew/kurt) from shifted power sums; the shift is exact (shift-invariant)
-        # and keeps the moment reconstruction numerically stable (g1_g2_from_power_sums).
+    if stat in _SHAPE_MIN_N or stat in ("var", "std"):
+        # dispersion/shape stats from shifted power sums; the shift is exact (shift-invariant
+        # statistics) and keeps the moment reconstruction numerically stable -- it also removes
+        # any reliance on the backend's own var/skew implementations (cuDF's one-pass var
+        # cancels catastrophically at |mean| >> sd, and differently from pandas' two-pass).
         shift = float(np.mean(y)) if len(y) else 0.0
         mom = backend.category_moments(keys, y - shift)
-        vals = g1_g2_from_power_sums(
-            mom["count"], mom["s1"], mom["s2"], mom["s3"], mom["s4"], stat
-        )
-        per_cat = pd.Series(vals, index=mom.index)
-        counts = mom["count"]
+        cnt, s1, s2 = mom["count"], mom["s1"], mom["s2"]
+        if stat in ("var", "std"):
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mu = s1 / cnt
+                vals = np.where(cnt > 1, (s2 - s1 * mu) / np.where(cnt > 1, cnt - 1.0, 1.0),
+                                np.nan)
+            if stat == "std":
+                vals = np.sqrt(np.clip(vals, 0.0, None))
+        else:
+            vals = g1_g2_from_power_sums(cnt, s1, s2, mom["s3"], mom["s4"], stat)
+        per_cat = pd.Series(np.asarray(vals, dtype=float), index=mom.index)
+        counts = cnt
     else:
-        per_cat = backend.category_agg(keys, y, stat)  # Series; NaN where undefined (var of n=1)
+        per_cat = backend.category_agg(keys, y, stat)  # median/min/max
         counts = pd.Series(keys).value_counts().reindex(per_cat.index)
     gv = global_stat(y, stat)
     # fall back to the global statistic for undefined or under-supported categories

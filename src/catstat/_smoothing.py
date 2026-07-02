@@ -47,21 +47,35 @@ def mean_from_stats(count, mean, sumsq, smooth, global_mean: float, tau2: float)
 
 
 def fit_mean_encoding(
-    keys: np.ndarray, y: np.ndarray, smooth, backend=None
+    keys: np.ndarray, y: np.ndarray, smooth, backend=None, shift: bool = True
 ) -> tuple[pd.Series, float]:
     """Return ``(encoding_by_category, global_mean)`` for a mean/probability target statistic.
 
     ``y`` is the (possibly binarized, for classification) target aligned with ``keys``. The heavy
     group-by runs on ``backend`` (CPU by default); the rest is host arithmetic
     (:func:`mean_from_stats`), so CPU and GPU produce the same table (to ``allclose``).
+
+    ``shift=True`` (continuous targets) reduces about the global mean: the smoothed mean is
+    affine-equivariant and var_pop is shift-invariant, so the result is identical -- but the
+    shifted sums keep the EB weights stable when ``|mean| >> sd`` (unshifted
+    ``sumsq/count - mean^2`` cancels catastrophically, and CPU/GPU cancel *differently*,
+    breaking parity at large offsets). Binarized (0/1) targets pass ``shift=False``: they have
+    no offset problem, and shifting would smear fp residue into the exactly-zero variance of a
+    *pure* category, breaking WOE's documented ``+-inf`` contract.
     """
     if backend is None:
         backend = _cpu
-    stats = backend.category_reduce(keys, y)
     yv = np.asarray(y, dtype=float)
     global_mean = float(np.mean(yv))
     tau2 = float(np.var(yv)) if isinstance(smooth, str) else 0.0  # population variance
-    enc = mean_from_stats(stats["count"], stats["mean"], stats["sumsq"], smooth, global_mean, tau2)
+    if shift:
+        stats = backend.category_reduce(keys, yv - global_mean)
+        enc = mean_from_stats(stats["count"], stats["mean"], stats["sumsq"], smooth, 0.0, tau2)
+        return enc + global_mean, global_mean
+    stats = backend.category_reduce(keys, yv)
+    enc = mean_from_stats(
+        stats["count"], stats["mean"], stats["sumsq"], smooth, global_mean, tau2
+    )
     return enc, global_mean
 
 

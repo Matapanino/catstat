@@ -393,16 +393,18 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         entries.append(((feat, "mean", None), s, fb))
                     elif self.target_type_ == "binary":
                         yb = (y_sel == self.classes_[1]).astype(float)
-                        s, fb = fit_mean_encoding(keys, yb, self.smooth, bk)
+                        s, fb = fit_mean_encoding(keys, yb, self.smooth, bk, shift=False)
                         entries.append(((feat, "mean", None), s, fb))
                     else:  # multiclass: one-vs-rest per global class
                         for c in self.classes_:
                             yc = (y_sel == c).astype(float)
-                            s, fb = fit_mean_encoding(keys, yc, self.smooth, bk)
+                            s, fb = fit_mean_encoding(keys, yc, self.smooth, bk, shift=False)
                             entries.append(((feat, "mean", c), s, fb))
                 elif spec.name == "woe":  # binary-only (gated at fit); prior = fold/global mean
                     yb = (y_arr[sel] == self.classes_[1]).astype(float)
-                    s, prior = fit_mean_encoding(keys, yb, self.smooth, self._backend_mod)
+                    s, prior = fit_mean_encoding(
+                        keys, yb, self.smooth, self._backend_mod, shift=False
+                    )
                     woe = pd.Series(
                         woe_from_prob(s.to_numpy(dtype=float), prior), index=s.index
                     )
@@ -699,7 +701,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 y_act = y_arr.astype(float)[a]
                 shape_req = any(meta.stat in _SHAPE_STATS for _j, meta in items)
                 order = 4 if shape_req else 2
-                shift = float(y_act.mean()) if shape_req and y_act.size else 0.0
+                # always shift continuous targets: exact (shift-invariant stats; the mean
+                # finalizer un-shifts) and keeps the EB weights / dispersion reconstruction
+                # stable when |mean| >> sd -- on both backends identically
+                shift = float(y_act.mean()) if y_act.size else 0.0
                 tab = complement_tables(
                     n,
                     a,

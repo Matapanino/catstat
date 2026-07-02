@@ -10,6 +10,13 @@ All notable changes to `catstat` are documented here. Format follows
   `Series.kurt`). Continuous targets only; no smoothing (honesty rule); `n < 4` or unseen
   categories fall back to the global kurtosis (0.0 if itself undefined); a constant category
   encodes as 0.0.
+- **`stats=["woe"]`** — weight of evidence for **binary** targets:
+  `woe = logit(smoothed P(y=1|cat)) − logit(prior)` (positive = over-indexes on the positive
+  class), derived from the existing mean/probability smoothing so it inherits the m-estimate /
+  empirical-Bayes machinery unchanged. Unknown categories encode as exactly **0.0**. Cross-fitted
+  on the single-pass additive kernel; GPU-eligible. Note: a *pure* category yields ±inf under
+  `smooth=0` and under `smooth="auto"` (EB applies no shrinkage at zero within-category
+  variance) — use a fixed `smooth=m > 0` for guaranteed-finite WOE.
 
 ### Changed
 - **`skew` (and the new `kurt`) are now computed from per-category power sums**

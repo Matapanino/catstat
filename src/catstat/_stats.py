@@ -28,6 +28,7 @@ class StatSpec:
     name_infix: str  # output column infix, e.g. "te_mean", "count", "freq", "te_std"
     gpu_supported: bool = True  # cudf groupby supports this agg
     continuous_only: bool = False  # requires a continuous (regression) target
+    binary_only: bool = False  # requires a binary target (e.g. woe)
     func: Callable | None = None  # custom aggregation callable: f(values: ndarray) -> scalar
 
 
@@ -44,6 +45,9 @@ _REGISTRY: dict[str, StatSpec] = {
     # backends provide -- neither pandas' .skew() nor a cuDF equivalent is needed.
     "skew": StatSpec("skew", "none", False, True, "te_skew", continuous_only=True),
     "kurt": StatSpec("kurt", "none", False, True, "te_kurt", continuous_only=True),
+    # woe = logit(smoothed p) - logit(prior): a probability-family stat, so it inherits the
+    # principled mean smoothing (honesty rule) and the mean's GPU reduce. Binary targets only.
+    "woe": StatSpec("woe", "mean", False, True, "woe", binary_only=True),
 }
 
 

@@ -11,8 +11,8 @@ class TargetEncoder(_BaseStatEncoder):
 
     ``fit_transform`` is leakage-safe for the training set; ``fit().transform()`` learns full-data
     encodings and is the path for *new* data. ``stats`` accepts built-ins
-    (``mean``/``count``/``frequency``/``var``/``std``/``median``/``min``/``max``/``skew``/``kurt``)
-    and
+    (``mean``/``count``/``frequency``/``var``/``std``/``median``/``min``/``max``/``skew``/``kurt``/
+    ``woe``, the last binary-only: ``logit(smoothed p) - logit(prior)``, unknown -> 0.0) and
     custom ``(name, callable)`` aggregations. ``scheme`` selects how the *mean* is cross-fitted on
     the training set: ``"kfold"`` (default, out-of-fold), ``"loo"`` (leave-one-out), or
     ``"ordered"`` (CatBoost-style ordered target statistics). ``loo``/``ordered`` apply to the mean

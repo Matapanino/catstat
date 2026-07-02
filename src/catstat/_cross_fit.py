@@ -308,17 +308,14 @@ def complement_moments(
     )
 
 
-def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
-    """OOF mean encoding from the shared moments (fixed m-estimate and ``smooth='auto'``
-    empirical-Bayes with the per-fold complement population mean/variance). Identical arithmetic to
-    the original single-pass mean kernel; mirrors ``_smoothing.fit_mean_encoding`` per fold. When
-    the moments were computed on shifted values (``mom.shift != 0``) the shift is added back at the
-    scatter -- both smoothers are affine-equivariant (a convex blend of shifted means plus ``shift``
-    equals the blend of unshifted means; the EB weights use only shift-invariant variances), so the
-    result is the unshifted encoding exactly (up to fp rounding, covered by the allclose audit)."""
-    out = np.full(mom.n, np.nan, dtype=float)
-    if mom.a.size == 0:
-        return out
+def _mean_enc_active(mom: _OOFMoments, smooth, handle_unknown):
+    """Shared smoothed-mean arithmetic over the active rows: ``(enc, g_row)``.
+
+    ``enc`` is the per-row OOF smoothed mean (fixed m-estimate or ``smooth='auto'``
+    empirical-Bayes with the per-fold complement population mean/variance; mirrors
+    ``_smoothing.fit_mean_encoding`` per fold), with the unknown handling already applied
+    (``'value'`` rows are exactly the per-fold prior ``g_row``). Consumed by the mean finalizer
+    (scatter + un-shift) and the WOE finalizer (logit difference against ``g_row``)."""
     cn, fid = mom.cn, mom.fid
     g = mom.cs_fold / cn
     g_row = g[fid]
@@ -343,9 +340,39 @@ def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
                 "Found unknown categories during out-of-fold encoding (handle_unknown='error')."
             )
         enc = np.where(seen, enc, g_row if handle_unknown == "value" else np.nan)
+    return enc, g_row
 
+
+def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
+    """OOF mean encoding from the shared moments. Identical arithmetic to the original
+    single-pass mean kernel (see :func:`_mean_enc_active`). When the moments were computed on
+    shifted values (``mom.shift != 0``) the shift is added back at the scatter -- both smoothers
+    are affine-equivariant (a convex blend of shifted means plus ``shift`` equals the blend of
+    unshifted means; the EB weights use only shift-invariant variances), so the result is the
+    unshifted encoding exactly (up to fp rounding, covered by the allclose audit)."""
+    out = np.full(mom.n, np.nan, dtype=float)
+    if mom.a.size == 0:
+        return out
+    enc, _g_row = _mean_enc_active(mom, smooth, handle_unknown)
     # un-shift (NaN survives the add); guard keeps the shift=0 path bit-identical (incl. -0.0)
     out[mom.a] = enc if mom.shift == 0.0 else enc + mom.shift
+    return out
+
+
+def finalize_woe_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
+    """OOF WOE from the SAME moments as the mean: ``logit(smoothed p) - logit(per-fold prior)``.
+
+    ``mom`` is computed on the binarized target (positive class = ``classes_[1]``), never
+    shifted (binary targets take no shape stats). Unknown rows under ``'value'`` are encoded at
+    their fold's prior by :func:`_mean_enc_active`, so their WOE is exactly 0.0 -- the documented
+    unknown fallback."""
+    from ._smoothing import woe_from_prob
+
+    out = np.full(mom.n, np.nan, dtype=float)
+    if mom.a.size == 0:
+        return out
+    enc, g_row = _mean_enc_active(mom, smooth, handle_unknown)
+    out[mom.a] = woe_from_prob(enc, g_row)
     return out
 
 

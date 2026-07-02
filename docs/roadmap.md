@@ -65,6 +65,13 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   shape stat is requested (`finalize_shape_oof`; per-stat min-n fallback via `_STAT_MIN_N`), so
   skew/kurt no longer force the per-fold slow loop. fast==slow at allclose across the fallback
   matrix incl. a 1e9-offset case; leakage audit re-passed. `test_additive_fast_path.py`.
+- ✅ **Stats arc 3 (2026-07-02)**: `stats=["woe"]` — weight of evidence, **binary-only**
+  (`StatSpec.binary_only`), derived as `logit(smoothed p) − logit(prior)` from the existing
+  mean/probability smoothing (honesty-rule compliant; no new smoothing invented). GPU-eligible and
+  on the additive fast kernel; unknown/missing-unseen fallback is exactly **0.0**. Documented
+  edge: a *pure* category is ±inf under `smooth=0` **and** `smooth='auto'` (EB shrinks by
+  within-category variance = 0); fixed `m>0` guarantees finite. Leakage audit exact; sklearn-compat
+  spot checks pass. `test_woe.py`.
 - ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
   modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
 - ✅ **Phase 3c**: `output="polars"` (returns a polars DataFrame; lazy import, optional dep).

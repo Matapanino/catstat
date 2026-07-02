@@ -52,6 +52,7 @@ statistics to emit:
 | `"var"`, `"std"` | — (global fallback) | regression | ✅ | `te_var`, `te_std` |
 | `"median"`, `"min"`, `"max"` | — (global fallback) | regression | ✅ | `te_median` / `te_min` / `te_max` |
 | `"skew"`, `"kurt"` | — (global fallback) | regression | ✅ | `te_skew`, `te_kurt` |
+| `"woe"` | inherits the mean's smoothing (logit-derived) | binary | ✅ | `woe` |
 | `("name", callable)` — custom (quantiles, IQR, …) | — (global fallback) | regression | CPU only | `name` |
 
 **Smoothing honesty:** only mean/probability statistics are smoothed. Count/frequency get none;

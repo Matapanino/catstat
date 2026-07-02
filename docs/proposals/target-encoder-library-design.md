@@ -376,6 +376,7 @@ regularizable, which is exactly the trap a naive generalization of target encodi
   | var / std | global var / std | safest dispersion prior (a 1-sample category has undefined variance) |
   | median / min / max / quantile | global statistic over all `y` | order stats have no meaningful blend |
   | skew / kurt | global skew / kurt (else 0 if undefined) | needs `n≥3` / `n≥4`; otherwise the global shape |
+  | woe | **0.0** | logit(prior) − logit(prior): no evidence either way for an unseen category |
   | custom | global value of the callable | consistent with the above |
 
 - A category that was missing-at-fit but appears at transform, when `handle_missing="value"`: if

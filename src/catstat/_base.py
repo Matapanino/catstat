@@ -24,6 +24,7 @@ from ._cross_fit import (
     finalize_dispersion_oof,
     finalize_mean_oof,
     finalize_shape_oof,
+    finalize_woe_oof,
     gather,
     joint_codes,
     loo_encode,
@@ -33,7 +34,7 @@ from ._cross_fit import (
 )
 from ._feature_names import build_columns
 from ._numeric import apply_numeric_col, fit_numeric_plan, validate_binning
-from ._smoothing import fit_mean_encoding
+from ._smoothing import fit_mean_encoding, woe_from_prob
 from ._validation import (
     _is_numeric_like,
     check_handle,
@@ -48,7 +49,7 @@ from .backends._dispatch import backend_module, select_backend
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
 # stats the single-pass kernel can finalize from (fold, key) power sums; skew/kurt need order-4
-_ADDITIVE_STATS = frozenset({"mean", "var", "std", "skew", "kurt"})
+_ADDITIVE_STATS = frozenset({"mean", "var", "std", "skew", "kurt", "woe"})
 _SHAPE_STATS = frozenset({"skew", "kurt"})
 
 
@@ -158,6 +159,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     f"stat={spec.name!r} requires a continuous target; got "
                     f"target_type={self.target_type_!r}. Dispersion/order statistics on "
                     "classification targets are not supported."
+                )
+            # getattr: fitted estimators pickled before the field existed lack it on their specs
+            if getattr(spec, "binary_only", False) and self.target_type_ != "binary":
+                raise ValueError(
+                    f"stat={spec.name!r} requires a binary target; got "
+                    f"target_type={self.target_type_!r}. WOE is undefined for "
+                    "regression/multiclass targets."
                 )
 
         scheme = getattr(self, "scheme", "kfold")
@@ -364,7 +372,14 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                             yc = (y_sel == c).astype(float)
                             s, fb = fit_mean_encoding(keys, yc, self.smooth, bk)
                             entries.append(((feat, "mean", c), s, fb))
-                else:  # var/std/median/min/max/skew or custom (continuous-only, target-dependent)
+                elif spec.name == "woe":  # binary-only (gated at fit); prior = fold/global mean
+                    yb = (y_arr[sel] == self.classes_[1]).astype(float)
+                    s, prior = fit_mean_encoding(keys, yb, self.smooth, self._backend_mod)
+                    woe = pd.Series(
+                        woe_from_prob(s.to_numpy(dtype=float), prior), index=s.index
+                    )
+                    entries.append(((feat, "woe", None), woe, 0.0))
+                else:  # var/std/median/min/max/skew/kurt or custom (continuous-only)
                     min_samples = getattr(self, "min_samples_category", 1)
                     y_sel_f = y_arr[sel].astype(float)
                     if spec.func is not None:
@@ -599,7 +614,15 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         oof[:, j] = finalize_shape_oof(mom, meta.stat, ms, self.handle_unknown)
                     else:
                         oof[:, j] = finalize_dispersion_oof(mom, meta.stat, ms, self.handle_unknown)
-            else:  # binary/multiclass: mean only, one moment pass per class (factorize shared)
+            elif self.target_type_ == "binary":  # mean/woe share one binarized moment pass
+                yv = self._mean_y_vector(y_arr, items[0][1])[a]
+                mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)
+                for j, meta in items:
+                    if meta.stat == "woe":
+                        oof[:, j] = finalize_woe_oof(mom, self.smooth, self.handle_unknown)
+                    else:
+                        oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+            else:  # multiclass: mean only, one moment pass per class (factorize shared)
                 for j, meta in items:
                     yv = self._mean_y_vector(y_arr, meta)[a]
                     mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)

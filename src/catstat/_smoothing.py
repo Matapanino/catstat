@@ -54,3 +54,23 @@ def fit_mean_encoding(
             enc = (count * mean + m * global_mean) / (count + m)
 
     return enc.astype(float), global_mean
+
+
+def woe_from_prob(p, prior):
+    """Weight of evidence from the (smoothed) ``P(y=1 | category)`` and the prior.
+
+    ``woe_c = logit(p_c) - logit(prior)`` -- by Bayes this equals the classic credit-scoring
+    ``ln(P(c | y=1) / P(c | y=0))``; positive WOE means the category over-indexes on the positive
+    class. Deriving it from the already-smoothed probability keeps it inside the honesty rule
+    (probability-family smoothing, nothing new invented) -- and, deliberately, nothing extra is
+    clipped: a **pure** category (``p in {0, 1}``) yields ``+-inf`` under ``smooth=0`` *and*
+    under ``smooth='auto'`` (the EB weight ``m_i = var_i/tau^2`` is 0 at zero within-category
+    variance, so pure categories are not shrunk). A fixed m-estimate ``smooth=m > 0`` keeps ``p``
+    strictly interior and WOE finite. ``prior`` may be a scalar (full-data fit) or a per-row
+    array (per-fold OOF priors); a category encoded at its prior (e.g. the unknown fallback) gets
+    exactly 0.0.
+    """
+    p = np.asarray(p, dtype=float)
+    prior = np.asarray(prior, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return (np.log(p) - np.log1p(-p)) - (np.log(prior) - np.log1p(-prior))

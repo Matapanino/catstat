@@ -34,6 +34,28 @@ def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
 
 
+def test_cpu_gpu_parity_binary_woe():  # pragma: no cover - GPU only
+    """WOE rides the mean's GPU reduce (binarized y), so CPU/GPU agree at allclose."""
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(4)
+    n, k = 200_000, 5_000
+    g = rng.integers(0, k, size=n).astype(str)
+    y = (rng.uniform(size=n) < 0.4).astype(int)
+    X = pd.DataFrame({"g": g})
+
+    kw = dict(cols=["g"], stats=["mean", "woe"], cv=5, random_state=0, output="numpy")
+    a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
+    b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
+    assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-8)
+
+    a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
+    b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
+    assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+
 @pytest.mark.parametrize("stats", [["mean"], ["var"]])
 def test_cpu_gpu_parity_combination(stats):  # pragma: no cover - GPU only
     """Combination parity: the int64 mixed-radix joint codes are host-built (identical on both

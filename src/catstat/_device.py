@@ -39,15 +39,10 @@ DEVICE_PENDING_STATS = frozenset({"median", "min", "max"})
 
 def check_device_fences(est, specs) -> None:
     """Loud, early errors for the device-input combinations that are not implemented (yet)."""
-    if est.backend == "cpu":  # precedence over the output fence: the intent error comes first
+    if est.backend == "cpu":  # precedence over the other fences: the intent error comes first
         raise ValueError(
             "backend='cpu' with a cuDF input would require a silent device->host transfer. "
             "Convert explicitly with X.to_pandas(), or use backend='auto'/'gpu'."
-        )
-    if est.output != "numpy":
-        raise NotImplementedError(
-            f"output={est.output!r} with cuDF input is not supported yet (cuDF output lands "
-            "next); pass output='numpy' (one device->host copy of the final matrix)."
         )
     if getattr(est, "numeric", "ignore") != "ignore":
         raise NotImplementedError(
@@ -334,3 +329,65 @@ def _cells_for(stat, tab, est, ms):
     if stat in _SHAPE_STATS:
         return shape_cells(tab, stat, ms, est.handle_unknown)
     return dispersion_cells(tab, stat, ms, est.handle_unknown)
+
+
+def transform_device_columns(est, Xg) -> list:
+    """Transform a cuDF frame on device against the fitted (host) tables.
+
+    Mirrors ``_transform_array``: per unit, device codes against the fit-time category index
+    (unknown -> -1), one device gather per column, then the unknown/missing policy applied on
+    device masks. Fitted on either backend -- the tables are host either way.
+    """
+    if getattr(est, "_numeric_plan_", None):
+        raise NotImplementedError(
+            "transform on cuDF input with numeric-encoded columns is not supported; "
+            "convert with X.to_pandas()."
+        )
+    hm, hu = est.handle_missing, est.handle_unknown
+    cols: list = []
+    cache: dict = {}
+    for meta in est._columns_meta:
+        feat = meta.feature
+        enc = est._fit_tables[est._key(meta)]
+        if feat not in cache:
+            unit_cols = est._unit_cols[feat]
+            if len(unit_cols) == 1:
+                codes, missing = _gpu.codes_from_uniques(enc.index, Xg[unit_cols[0]])
+            else:
+                plan = est._unit_keyplans.get(tuple(unit_cols))
+                if plan is None:  # int64 overflow at fit -> tuple keys, host-only
+                    raise NotImplementedError(
+                        f"combination unit {feat!r} was fitted with tuple keys (int64 "
+                        "overflow); transform it on pandas input."
+                    )
+                comp_codes, missing = [], None
+                for u, col in zip(plan.uniques, unit_cols):
+                    c, m = _gpu.codes_from_uniques(u, Xg[col])
+                    comp_codes.append(c)
+                    missing = m if missing is None else (missing | m)
+                joint = _gpu.joint_codes_device(plan.radices, comp_codes)
+                codes = _gpu.codes_from_int_index(enc.index, joint)
+            if hm == "error" and bool(missing.any()):
+                raise ValueError(f"Missing values in unit {feat!r} with handle_missing='error'.")
+            cache[feat] = (codes, missing)
+        codes, missing = cache[feat]
+
+        col = _gpu.gather_cells(enc.values, codes)  # unknown/missing codes (-1) -> NaN
+        notfound = codes < 0
+        if hm == "return_nan":
+            unknown = notfound & ~missing
+        elif hm == "value":
+            # not-found rows are unseen real categories OR an unseen missing level
+            unknown = notfound
+        else:  # "error": missing already raised above
+            unknown = notfound
+        if bool(unknown.any()):
+            if hu == "error":
+                raise ValueError(
+                    f"Found unknown categories in column {feat!r} with handle_unknown='error'."
+                )
+            if hu == "value":
+                col[unknown] = enc.fallback
+            # "return_nan": leave NaN
+        cols.append(col)
+    return cols

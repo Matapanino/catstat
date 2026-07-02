@@ -264,6 +264,86 @@ def stack_to_host(cols) -> np.ndarray:
     return cp.asnumpy(cp.stack([cp.asarray(c, dtype=cp.float64) for c in cols], axis=1))
 
 
+def wrap_cudf(data, columns, index=None):
+    """Assemble a cuDF DataFrame from device columns (or a host matrix -- one explicit H2D).
+
+    ``index`` may be a cuDF index (device input: mirrored as-is) or a pandas index (host input
+    with ``output='cudf'``).
+    """
+    ensure_available()
+    import cudf
+    import cupy as cp
+
+    if isinstance(data, (list, tuple)):
+        df = cudf.DataFrame(
+            {str(name): cp.asarray(c, dtype=cp.float64) for name, c in zip(columns, data)}
+        )
+    else:
+        mat = cp.asarray(data, dtype=cp.float64)
+        df = cudf.DataFrame({str(name): mat[:, i] for i, name in enumerate(columns)})
+    if index is not None:
+        df.index = index if isinstance(index, cudf.BaseIndex) else cudf.Index(index)
+    return df
+
+
+def codes_from_uniques(uniques_host, ser):
+    """Device codes of a cuDF column against a fit-time host category index.
+
+    Returns ``(codes int64 cupy, missing bool cupy)``: nulls map to the index position of the
+    ``MISSING`` sentinel when the fit-time index learned one, else ``-1``; unknown values map to
+    ``-1``. Implemented as a device hash join against the (small, H2D'd) unique table -- robust
+    across cudf versions, unlike ``Index.get_indexer``.
+    """
+    import cudf
+    import cupy as cp
+
+    from .._validation import MISSING
+
+    missing_code = -1
+    vals, codes_of_vals = [], []
+    for i, v in enumerate(uniques_host):
+        if v is MISSING:
+            missing_code = i
+        else:
+            vals.append(v)
+            codes_of_vals.append(i)
+    lut = cudf.DataFrame(
+        {
+            "k": cudf.Series(pd.Series(vals)),  # let pandas re-infer the concrete dtype
+            "code": cp.asarray(np.asarray(codes_of_vals, dtype=np.int64)),
+        }
+    )
+    n = len(ser)
+    left = cudf.DataFrame({"k": ser.reset_index(drop=True), "ord": cp.arange(n)})
+    merged = left.merge(lut, on="k", how="left").sort_values("ord")
+    codes = merged["code"].fillna(-1).astype("int64").to_cupy()
+    missing = ser.isnull().to_cupy() if ser.has_nulls else cp.zeros(n, dtype=cp.bool_)
+    if missing_code >= 0 and bool(missing.any()):
+        codes = cp.where(cp.asarray(missing), cp.int64(missing_code), codes)
+    return codes, cp.asarray(missing)
+
+
+def codes_from_int_index(index_host, joint_codes):
+    """Canonical positions of device int64 joint codes against the fit-time Int64 index.
+
+    Same device hash join as :func:`codes_from_uniques`, but over int64 keys (no MISSING
+    sentinel: a missing component is already folded into the joint code or is ``-1``). Unknown
+    joint codes -> ``-1``.
+    """
+    import cudf
+    import cupy as cp
+
+    lut = cudf.DataFrame(
+        {
+            "k": cp.asarray(np.asarray(index_host, dtype=np.int64)),
+            "code": cp.arange(len(index_host), dtype=cp.int64),
+        }
+    )
+    left = cudf.DataFrame({"k": joint_codes, "ord": cp.arange(joint_codes.shape[0])})
+    merged = left.merge(lut, on="k", how="left").sort_values("ord")
+    return merged["code"].fillna(-1).astype("int64").to_cupy()
+
+
 def oof_moment_tables(comp, y, size, order):
     """GPU twin of ``_cpu.oof_moment_tables``: per-(fold, key) sums via ``cupy.bincount``.
 

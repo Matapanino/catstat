@@ -37,6 +37,19 @@ def test_select_backend_device_input_contract():
                 select_backend(backend, 10, 1, True, device_input=True)
 
 
+def test_output_cudf_without_rapids_raises():
+    try:
+        import cudf  # noqa: F401
+
+        pytest.skip("RAPIDS present; the host-side ImportError contract is CPU-box-only")
+    except ImportError:
+        pass
+    X = pd.DataFrame({"g": ["a", "b"] * 20})
+    y = np.arange(40, dtype=float)
+    with pytest.raises(ImportError, match="RAPIDS"):
+        TargetEncoder(cols=["g"], output="cudf").fit(X, y)
+
+
 # ---- everything below runs only on a GPU/RAPIDS box --------------------------------------------
 
 
@@ -144,8 +157,6 @@ def test_device_input_fences():  # pragma: no cover - GPU only
     Xg, _Xp, y = _device_data(n=1_000, k=50)
     with pytest.raises(ValueError, match="to_pandas"):
         TargetEncoder(cols=["g"], backend="cpu").fit(Xg, y)
-    with pytest.raises(NotImplementedError, match="output"):
-        TargetEncoder(cols=["g"], output="pandas").fit(Xg, y)
     with pytest.raises(NotImplementedError, match="median"):
         TargetEncoder(cols=["g"], stats=["median"], output="numpy").fit(Xg, y)
     with pytest.raises(ValueError, match="CPU-only"):
@@ -156,8 +167,81 @@ def test_device_input_fences():  # pragma: no cover - GPU only
         TargetEncoder(cols=["g"], scheme="loo", output="numpy").fit(Xg, y)
     with pytest.raises(NotImplementedError, match="numeric"):
         TargetEncoder(cols=["g"], numeric="auto", output="numpy").fit(Xg, y)
-    with pytest.raises(NotImplementedError, match="cuDF"):
-        TargetEncoder(cols=["g"], output="numpy").fit(Xg, y).transform(Xg)
+
+
+@pytest.mark.gpu
+def test_device_output_matrix():  # pragma: no cover - GPU only
+    """Output containers: device in -> cudf by default; numpy/pandas via one D2H; host in +
+    output='cudf' via one explicit H2D. Values identical across containers."""
+    import cudf
+
+    Xg, Xp, y = _device_data(n=20_000, k=500)
+    base = dict(cols=["g"], stats=["mean", "var"], cv=5, random_state=0, backend="gpu")
+    ref = np.asarray(TargetEncoder(**base, output="numpy").fit_transform(Xg, y))
+
+    out_auto = TargetEncoder(**base, output="auto").fit_transform(Xg, y)
+    assert isinstance(out_auto, cudf.DataFrame)
+    assert list(out_auto.columns) == ["g__te_mean", "g__te_var"]
+    assert np.allclose(out_auto.to_pandas().to_numpy(), ref, equal_nan=True)
+
+    out_cudf = TargetEncoder(**base, output="cudf").fit_transform(Xg, y)
+    assert isinstance(out_cudf, cudf.DataFrame)
+    assert np.allclose(out_cudf.to_pandas().to_numpy(), ref, equal_nan=True)
+
+    out_pd = TargetEncoder(**base, output="pandas").fit_transform(Xg, y)
+    assert isinstance(out_pd, pd.DataFrame)
+    assert np.allclose(out_pd.to_numpy(), ref, equal_nan=True)
+
+    # host input + output='cudf': explicit H2D on the way out
+    host_cudf = TargetEncoder(
+        cols=["g"], stats=["mean", "var"], cv=5, random_state=0, output="cudf"
+    ).fit_transform(Xp, y)
+    assert isinstance(host_cudf, cudf.DataFrame)
+    assert np.allclose(host_cudf.to_pandas().to_numpy(), ref, rtol=1e-5, atol=1e-8,
+                       equal_nan=True)
+
+
+@pytest.mark.gpu
+def test_device_set_output_pandas_wins():  # pragma: no cover - GPU only
+    """sklearn set_output(transform='pandas') overrides output='auto' -> pandas even for cuDF
+    input (sklearn semantics win; its wrapper cannot wrap a cuDF frame)."""
+    Xg, _Xp, y = _device_data(n=20_000, k=500)
+    enc = TargetEncoder(cols=["g"], stats=["mean"], cv=5, random_state=0, backend="gpu")
+    enc.set_output(transform="pandas")
+    out = enc.fit_transform(Xg, y)
+    assert isinstance(out, pd.DataFrame)
+    assert list(out.columns) == ["g__te_mean"]
+
+
+@pytest.mark.gpu
+def test_transform_cudf_input_parity():  # pragma: no cover - GPU only
+    """transform on cuDF input (device gather) == CPU transform on to_pandas(), for both a
+    host-fitted and a device-fitted encoder, incl. unknown/missing fallbacks and combination."""
+    import cudf
+
+    Xg, Xp, y = _device_data(k=300, missing=0.1)
+    kw = dict(cols=["g", "b"], stats=["mean", "var"], handle_missing="value", cv=5,
+              random_state=0, output="numpy")
+    cpu = TargetEncoder(**kw, backend="cpu").fit(Xp, y)
+    dev = TargetEncoder(**kw, backend="gpu").fit(Xg, y)
+    ref = np.asarray(cpu.transform(Xp))
+    for enc in (cpu, dev):
+        got = np.asarray(enc.transform(Xg))
+        assert np.allclose(ref, got, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+    probe_pd = pd.DataFrame({"g": ["UNSEEN", None, "0"], "b": ["0", "1", "UNSEEN"]})
+    probe = cudf.from_pandas(probe_pd)
+    ref_p = np.asarray(cpu.transform(probe_pd))
+    got_p = np.asarray(dev.transform(probe))
+    assert np.allclose(ref_p, got_p, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+    comb = dict(cols=["g", "b"], multi_feature_mode="combination", stats=["mean"],
+                handle_missing="value", cv=5, random_state=0, output="numpy")
+    cpu_c = TargetEncoder(**comb, backend="cpu").fit(Xp, y)
+    dev_c = TargetEncoder(**comb, backend="gpu").fit(Xg, y)
+    ref_c = np.asarray(cpu_c.transform(probe_pd))
+    got_c = np.asarray(dev_c.transform(probe))
+    assert np.allclose(ref_c, got_c, rtol=1e-5, atol=1e-8, equal_nan=True)
 
 
 @pytest.mark.gpu

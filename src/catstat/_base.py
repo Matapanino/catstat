@@ -46,8 +46,8 @@ from ._validation import (
 from .backends import _cpu
 from .backends._dispatch import backend_module, is_device_frame, select_backend
 
-_VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
-_DEFERRED_OUTPUT = ("cudf", "cupy")
+_VALID_OUTPUT = ("auto", "numpy", "pandas", "polars", "cudf")
+_DEFERRED_OUTPUT = ("cupy",)
 # stats the single-pass kernel can finalize from (fold, key) power sums; skew/kurt need order-4
 _ADDITIVE_STATS = frozenset({"mean", "var", "std", "skew", "kurt", "woe"})
 _SHAPE_STATS = frozenset({"skew", "kurt"})
@@ -123,6 +123,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if device:
             Xdf, was_df, all_cols = X, True, list(X.columns)
         else:
+            if self.output == "cudf":  # host input + cuDF output: explicit H2D, RAPIDS required
+                from .backends import _gpu
+
+                _gpu.ensure_available()
             Xdf, was_df, all_cols = prepare_X(X)
         self.n_features_in_ = Xdf.shape[1]
         if was_df:
@@ -540,11 +544,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def transform(self, X):
         check_is_fitted(self, "_fit_tables")
         if is_device_frame(X):
-            raise NotImplementedError(
-                "transform on cuDF input is not supported yet (it lands with cuDF output); "
-                "fit/fit_transform accept cuDF, and a device-fitted encoder transforms pandas "
-                "input -- or convert with X.to_pandas()."
-            )
+            from . import _device
+
+            cols = _device.transform_device_columns(self, X)
+            return self._wrap_output_device(cols, X)
         Xdf, was_df, _ = prepare_X(X)
         arr = self._transform_array(Xdf, self._fit_tables)
         return self._wrap_output(arr, was_df, Xdf)
@@ -591,8 +594,39 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     "arbitrary overlapping splits are host-only -- pass X.to_pandas()."
                 )
             _device.kfold_oof_columns(self, units, y, fold_id, len(folds), cols)
-        del self._device_units  # free the device code cache; transform(pandas) never needs it
-        return _gpu.stack_to_host(cols)
+        del self._device_units  # free the device code cache; transform never needs it
+        return self._wrap_output_device(cols, X)
+
+    def _sklearn_output_request(self):
+        """The container sklearn's ``set_output`` asks for ('pandas'/'polars'), or None.
+
+        When set, sklearn semantics win over catstat's ``output`` param and we build the host
+        container ourselves -- sklearn's own wrapper cannot wrap a cuDF frame, and re-wrapping a
+        pandas one is a no-op."""
+        try:
+            from sklearn.utils._set_output import _get_output_config
+
+            cfg = _get_output_config("transform", self)["dense"]
+        except Exception:  # pragma: no cover - very old sklearn without set_output config
+            return None
+        return None if cfg == "default" else cfg
+
+    def _wrap_output_device(self, cols, Xg):
+        """Wrap device result columns per ``output`` (device in -> cuDF out by default)."""
+        from .backends import _gpu
+
+        req = self._sklearn_output_request()
+        out = self.output if req is None else req
+        if out in ("auto", "cudf"):
+            return _gpu.wrap_cudf(cols, self.feature_names_out_, Xg.index)
+        arr = _gpu.stack_to_host(cols)  # numpy / pandas / polars: one D2H, then host wrapping
+        if out == "pandas":
+            return pd.DataFrame(
+                arr, columns=self.feature_names_out_, index=Xg.index.to_pandas()
+            )
+        if out == "polars":
+            return self._wrap_output(arr, False, None)
+        return arr
 
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
@@ -759,6 +793,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if self.output == "pandas":
             idx = Xdf.index if was_df else None
             return pd.DataFrame(arr, columns=self.feature_names_out_, index=idx)
+        if self.output == "cudf":  # host-input path: one explicit H2D (RAPIDS checked at fit)
+            from .backends import _gpu
+
+            return _gpu.wrap_cudf(arr, self.feature_names_out_, Xdf.index if was_df else None)
         if self.output == "polars":
             try:
                 import polars as pl

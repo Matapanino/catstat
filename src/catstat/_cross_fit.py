@@ -277,6 +277,20 @@ def complement_tables(
     comp = fid_active * n_cat + codes
     size = n_folds * n_cat
     fc, fs, fss, fs3, fs4 = moment_tables(comp, y_a, size, order)
+    return tables_from_raw(n, a, comp, n_folds, n_cat, fc, fs, fss, fs3, fs4, shift)
+
+
+def tables_from_raw(
+    n, a, comp, n_folds, n_cat, fc, fs, fss, fs3=None, fs4=None, shift: float = 0.0
+) -> _OOFTables:
+    """Build :class:`_OOFTables` from the raw per-(fold, key) sums.
+
+    Split out of :func:`complement_tables` so the device path (which computes the raw sums on
+    device and holds ``comp``/row indices as cupy arrays) can reuse the complement arithmetic on
+    the small host tables. ``comp``/``a`` may then be device arrays: only the *cell* functions
+    (:func:`mean_cells` etc.) may be used on such a table, with the caller doing its own gather --
+    the host :func:`_scatter_cells` requires host arrays.
+    """
 
     def complement(t):
         """(per-key global - this fold's cell) over the flattened table; also the fold totals."""
@@ -287,7 +301,7 @@ def complement_tables(
     cs, ts = complement(fs)
     css, tss = complement(fss)
     c3 = c4 = c3_fold = c4_fold = None
-    if order >= 4:
+    if fs3 is not None:
         c3, ts3 = complement(fs3)
         c4, ts4 = complement(fs4)
         c3_fold = ts3.sum() - ts3
@@ -374,23 +388,21 @@ def _mean_enc_cells(tab: _OOFTables, smooth, handle_unknown):
     return E, g_cell
 
 
-def finalize_mean_oof(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
-    """OOF mean encoding from the shared tables. Identical arithmetic to the per-row kernel (the
-    finalizer runs on cells and one gather maps cells to rows; see :class:`_OOFTables`). When the
-    moments were computed on shifted values (``tab.shift != 0``) the shift is added back on the
-    cells -- both smoothers are affine-equivariant (a convex blend of shifted means plus ``shift``
-    equals the blend of unshifted means; the EB weights use only shift-invariant variances), so
-    the result is the unshifted encoding exactly (up to fp rounding, covered by the audit)."""
-    if tab.a.size == 0:
-        return np.full(tab.n, np.nan, dtype=float)
+def mean_cells(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
+    """The mean finalizer's (fold, key) value table. When the moments were computed on shifted
+    values (``tab.shift != 0``) the shift is added back on the cells -- both smoothers are
+    affine-equivariant (a convex blend of shifted means plus ``shift`` equals the blend of
+    unshifted means; the EB weights use only shift-invariant variances), so the result is the
+    unshifted encoding exactly (up to fp rounding, covered by the audit)."""
     E, _g_cell = _mean_enc_cells(tab, smooth, handle_unknown)
     if tab.shift != 0.0:
         E = E + tab.shift  # NaN cells survive the add
-    return _scatter_cells(tab, E)
+    return E
 
 
-def finalize_woe_oof(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
-    """OOF WOE from the SAME tables as the mean: ``logit(smoothed p) - logit(per-fold prior)``.
+def woe_cells(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
+    """The WOE finalizer's value table: ``logit(smoothed p) - logit(per-fold prior)`` from the
+    SAME tables as the mean.
 
     ``tab`` is computed on the binarized target (positive class = ``classes_[1]``), never
     shifted (binary targets take no shape stats). Unknown cells under ``'value'`` are encoded at
@@ -398,14 +410,26 @@ def finalize_woe_oof(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
     unknown fallback."""
     from ._smoothing import woe_from_prob
 
+    E, g_cell = _mean_enc_cells(tab, smooth, handle_unknown)
+    return woe_from_prob(E, g_cell)
+
+
+def finalize_mean_oof(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
+    """OOF mean encoding: :func:`mean_cells` + the row gather (see :class:`_OOFTables`)."""
     if tab.a.size == 0:
         return np.full(tab.n, np.nan, dtype=float)
-    E, g_cell = _mean_enc_cells(tab, smooth, handle_unknown)
-    return _scatter_cells(tab, woe_from_prob(E, g_cell))
+    return _scatter_cells(tab, mean_cells(tab, smooth, handle_unknown))
 
 
-def finalize_dispersion_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
-    """OOF var/std encoding from the SAME shared tables -- no smoothing (honesty rule).
+def finalize_woe_oof(tab: _OOFTables, smooth, handle_unknown) -> np.ndarray:
+    """OOF WOE encoding: :func:`woe_cells` + the row gather."""
+    if tab.a.size == 0:
+        return np.full(tab.n, np.nan, dtype=float)
+    return _scatter_cells(tab, woe_cells(tab, smooth, handle_unknown))
+
+
+def dispersion_cells(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
+    """The var/std finalizer's (fold, key) value table -- no smoothing (honesty rule).
 
     A seen cell whose complement count is ``< max(min_samples, 1)`` or ``< _STAT_MIN_N[stat]``
     (sample variance undefined for a singleton, ddof=1) falls back to the per-fold
@@ -415,8 +439,6 @@ def finalize_dispersion_oof(tab: _OOFTables, stat, min_samples, handle_unknown) 
     ``(ss - s**2/cn)/(cn - 1)`` (0.0 when cn <= 1). Var/std are shift-invariant, so tables
     computed on shifted values need no correction here.
     """
-    if tab.a.size == 0:
-        return np.full(tab.n, np.nan, dtype=float)
     cn, cs_fold, css_fold = tab.cn, tab.cs_fold, tab.css_fold
     cc, cs, css = tab.cc, tab.cs, tab.css
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -433,14 +455,14 @@ def finalize_dispersion_oof(tab: _OOFTables, stat, min_samples, handle_unknown) 
     E = _apply_unknown_cells(tab, E, g_cell, handle_unknown)
     if stat == "std":
         E = np.sqrt(np.clip(E, 0.0, None))  # std = sqrt(var); clip guards fp cancellation
-    return _scatter_cells(tab, E)
+    return E
 
 
-def finalize_shape_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
-    """OOF skew/kurt encoding from the SAME shared (order-4) tables -- no smoothing (honesty
-    rule; shape stats never blend).
+def shape_cells(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
+    """The skew/kurt finalizer's (fold, key) value table -- no smoothing (honesty rule; shape
+    stats never blend).
 
-    Structure mirrors :func:`finalize_dispersion_oof`: a seen cell whose complement count is
+    Structure mirrors :func:`dispersion_cells`: a seen cell whose complement count is
     ``< max(min_samples, 1)`` or where the statistic is undefined (``n < 3`` skew / ``n < 4``
     kurt, NaN from the reconstruction) falls back to the per-fold complement-global G1/G2 (itself
     0.0 when undefined, mirroring ``_aggregations.global_stat``); unseen cells follow
@@ -448,8 +470,6 @@ def finalize_shape_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np
     """
     from ._aggregations import g1_g2_from_power_sums
 
-    if tab.a.size == 0:
-        return np.full(tab.n, np.nan, dtype=float)
     g_fold = g1_g2_from_power_sums(
         tab.cn, tab.cs_fold, tab.css_fold, tab.c3_fold, tab.c4_fold, stat
     )
@@ -459,5 +479,18 @@ def finalize_shape_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np
     # seen but undersupported (NaN: n below the stat's min-n) -> per-fold complement-global stat
     lowcount = (tab.cc < max(int(min_samples), 1)) | np.isnan(val)
     E = np.where(lowcount, g_cell, val)
-    E = _apply_unknown_cells(tab, E, g_cell, handle_unknown)
-    return _scatter_cells(tab, E)
+    return _apply_unknown_cells(tab, E, g_cell, handle_unknown)
+
+
+def finalize_dispersion_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
+    """OOF var/std encoding: :func:`dispersion_cells` + the row gather."""
+    if tab.a.size == 0:
+        return np.full(tab.n, np.nan, dtype=float)
+    return _scatter_cells(tab, dispersion_cells(tab, stat, min_samples, handle_unknown))
+
+
+def finalize_shape_oof(tab: _OOFTables, stat, min_samples, handle_unknown) -> np.ndarray:
+    """OOF skew/kurt encoding: :func:`shape_cells` + the row gather."""
+    if tab.a.size == 0:
+        return np.full(tab.n, np.nan, dtype=float)
+    return _scatter_cells(tab, shape_cells(tab, stat, min_samples, handle_unknown))

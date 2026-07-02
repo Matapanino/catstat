@@ -17,31 +17,22 @@ import pandas as pd
 from .backends import _cpu
 
 
-def fit_mean_encoding(
-    keys: np.ndarray, y: np.ndarray, smooth, backend=None
-) -> tuple[pd.Series, float]:
-    """Return ``(encoding_by_category, global_mean)`` for a mean/probability target statistic.
+def mean_from_stats(count, mean, sumsq, smooth, global_mean: float, tau2: float) -> pd.Series:
+    """Smoothed mean encoding from per-category ``(count, mean, sumsq)`` plus global scalars.
 
-    ``y`` is the (possibly binarized, for classification) target aligned with ``keys``. The heavy
-    group-by runs on ``backend`` (CPU by default); the rest is host arithmetic, so CPU and GPU
-    produce the same table (to ``allclose``).
+    The single source of the m-estimate / empirical-Bayes arithmetic, shared by the host path
+    (:func:`fit_mean_encoding`, category-indexed Series) and the device path (code-indexed
+    Series built from on-device reductions). ``tau2`` is the population variance of ``y`` (only
+    consulted for ``smooth='auto'``).
     """
-    if backend is None:
-        backend = _cpu
-    stats = backend.category_reduce(keys, y)
-    count = stats["count"]
-    mean = stats["mean"]
-    global_mean = float(np.mean(np.asarray(y, dtype=float)))
-
     if isinstance(smooth, str):
         if smooth != "auto":
             raise ValueError(f"smooth={smooth!r}: only 'auto' or a float >= 0 is allowed.")
-        var_pop = (stats["sumsq"] / count - mean**2).clip(lower=0.0)
-        tau2 = float(np.var(np.asarray(y, dtype=float)))  # population variance
+        var_pop = (sumsq / count - mean**2).clip(lower=0.0)
         if tau2 > 0:
             m = var_pop / tau2
         else:  # constant target -> every category mean equals the global mean
-            m = pd.Series(0.0, index=count.index)
+            m = count * 0.0
         lam = count / (count + m)
         enc = lam * mean + (1.0 - lam) * global_mean
     else:
@@ -52,8 +43,26 @@ def fit_mean_encoding(
             enc = mean.copy()
         else:
             enc = (count * mean + m * global_mean) / (count + m)
+    return enc.astype(float)
 
-    return enc.astype(float), global_mean
+
+def fit_mean_encoding(
+    keys: np.ndarray, y: np.ndarray, smooth, backend=None
+) -> tuple[pd.Series, float]:
+    """Return ``(encoding_by_category, global_mean)`` for a mean/probability target statistic.
+
+    ``y`` is the (possibly binarized, for classification) target aligned with ``keys``. The heavy
+    group-by runs on ``backend`` (CPU by default); the rest is host arithmetic
+    (:func:`mean_from_stats`), so CPU and GPU produce the same table (to ``allclose``).
+    """
+    if backend is None:
+        backend = _cpu
+    stats = backend.category_reduce(keys, y)
+    yv = np.asarray(y, dtype=float)
+    global_mean = float(np.mean(yv))
+    tau2 = float(np.var(yv)) if isinstance(smooth, str) else 0.0  # population variance
+    enc = mean_from_stats(stats["count"], stats["mean"], stats["sumsq"], smooth, global_mean, tau2)
+    return enc, global_mean
 
 
 def woe_from_prob(p, prior):

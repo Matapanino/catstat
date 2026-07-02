@@ -44,7 +44,7 @@ from ._validation import (
     select_cols,
 )
 from .backends import _cpu
-from .backends._dispatch import backend_module, select_backend
+from .backends._dispatch import backend_module, is_device_frame, select_backend
 
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
@@ -116,7 +116,14 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             raise ValueError(f"output={self.output!r} must be one of {_VALID_OUTPUT}.")
         numeric_mode = self._validate_numeric_params()
 
-        Xdf, was_df, all_cols = prepare_X(X)
+        # cuDF input: keep the frame device-resident -- key extraction and every heavy reduction
+        # run on device (catstat._device); fold assignment, smoothing math, and all fitted
+        # attributes stay the same host code the CPU path uses.
+        device = is_device_frame(X)
+        if device:
+            Xdf, was_df, all_cols = X, True, list(X.columns)
+        else:
+            Xdf, was_df, all_cols = prepare_X(X)
         self.n_features_in_ = Xdf.shape[1]
         if was_df:
             self.feature_names_in_ = np.asarray(all_cols, dtype=object)
@@ -132,16 +139,26 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._unit_cols = dict(self._units)
         self._fit_numeric(Xdf, numeric_mode)
         # Per-combination-unit int64 joint-code plan, learned once from full X (X-only, so
-        # leakage-safe) and reused at fit / per-fold / transform via _unit_keys.
-        self._unit_keyplans = self._build_joint_keyplans(Xdf)
+        # leakage-safe) and reused at fit / per-fold / transform via _unit_keys. On the device
+        # path the plans are built from the on-device factorization instead (factorize_units).
+        self._unit_keyplans = {} if device else self._build_joint_keyplans(Xdf)
         self._specs = self._resolve_stat_specs()
         self.stats_ = [s.name for s in self._specs]
+        if device:
+            from . import _device
+
+            _device.check_device_fences(self, self._specs)
 
         supervised = self._is_supervised()
         if supervised:
             if y is None:
                 raise ValueError(f"{type(self).__name__} requires y to be supplied to fit().")
-            y_arr = np.asarray(y)
+            if device:
+                from .backends import _gpu
+
+                y_arr = _gpu.to_host_1d(y)  # target inference / classes / folds need host y
+            else:
+                y_arr = np.asarray(y)
             if len(y_arr) != Xdf.shape[0]:
                 raise ValueError("X and y have inconsistent lengths.")
             self.target_type_ = infer_target_type(y_arr, self.target_type)
@@ -186,16 +203,23 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
         all_gpu = all(s.gpu_supported for s in self._specs)
         self._backend_mod, self.backend_ = select_backend(
-            self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu
+            self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu, device_input=device
         )
         # Combination/interaction units now key on int64 mixed-radix joint codes (host-built and
-        # GPU-groupable), so the device path handles them; only CPU-only stats (skew/custom, which
-        # have no GPU primitive) force host -> `not all_gpu`.
+        # GPU-groupable), so the device path handles them; only CPU-only stats (custom callables,
+        # which have no GPU primitive) force host -> `not all_gpu`. (Device input with a CPU-only
+        # stat was already rejected by the fences above.)
         host_only = not all_gpu
-        if self.backend_ == "gpu" and host_only:
+        if self.backend_ == "gpu" and host_only and not device:
             self._backend_mod, self.backend_ = _cpu, _cpu.NAME
 
-        self._fit_tables = self._fit_all(Xdf, y_arr)
+        if device:
+            from . import _device
+
+            self._device_units = _device.factorize_units(self, Xdf)
+            self._fit_tables = _device.fit_all_device(self, self._device_units, y)
+        else:
+            self._fit_tables = self._fit_all(Xdf, y_arr)
 
         # public fitted attributes derived from the full-data tables
         self.categories_ = {}
@@ -505,6 +529,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def __getstate__(self):
         state = dict(super().__getstate__())
         state.pop("_backend_mod", None)
+        state.pop("_device_units", None)  # per-unit device code cache: not picklable, rebuildable
         return state
 
     def __setstate__(self, state):
@@ -514,11 +539,19 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
     def transform(self, X):
         check_is_fitted(self, "_fit_tables")
+        if is_device_frame(X):
+            raise NotImplementedError(
+                "transform on cuDF input is not supported yet (it lands with cuDF output); "
+                "fit/fit_transform accept cuDF, and a device-fitted encoder transforms pandas "
+                "input -- or convert with X.to_pandas()."
+            )
         Xdf, was_df, _ = prepare_X(X)
         arr = self._transform_array(Xdf, self._fit_tables)
         return self._wrap_output(arr, was_df, Xdf)
 
     def fit_transform(self, X, y=None, **fit_params):
+        if is_device_frame(X):
+            return self._fit_transform_device(X, y)
         self.fit(X, y)
         Xdf, was_df, _ = prepare_X(X)
         full = self._transform_array(Xdf, self._fit_tables)
@@ -534,6 +567,32 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 if meta.target_dependent:
                     full[:, j] = oof[:, j]
         return self._wrap_output(full, was_df, Xdf)
+
+    def _fit_transform_device(self, X, y):
+        """fit + leakage-safe training-set encode with X device-resident (cuDF).
+
+        The full-data gather and the OOF kernel both run on device against the fit-time codes;
+        the finalized matrix comes to host once (``output='numpy'``, enforced by the fences).
+        """
+        from . import _device
+        from .backends import _gpu
+
+        self.fit(X, y)
+        units = self._device_units
+        cols = _device.transform_train_columns(self, units, self._fit_tables)
+        if self._is_supervised() and any(m.target_dependent for m in self._columns_meta):
+            splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
+            y_host = _gpu.to_host_1d(y)
+            folds = make_folds(X.shape[0], y_host, splitter)
+            fold_id = self._partition_fold_id(folds, X.shape[0])
+            if fold_id is None:
+                raise NotImplementedError(
+                    "cuDF input requires a partitioning CV (KFold/StratifiedKFold-like); "
+                    "arbitrary overlapping splits are host-only -- pass X.to_pandas()."
+                )
+            _device.kfold_oof_columns(self, units, y, fold_id, len(folds), cols)
+        del self._device_units  # free the device code cache; transform(pandas) never needs it
+        return _gpu.stack_to_host(cols)
 
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)

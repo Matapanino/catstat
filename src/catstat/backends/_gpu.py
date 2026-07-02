@@ -104,6 +104,166 @@ def category_reduce(keys: np.ndarray, y: np.ndarray | None = None) -> pd.DataFra
     return _remap_missing_index(out, had_missing)
 
 
+# ---- device-input primitives (cuDF X / cupy y) -------------------------------------------------
+# Everything below serves catstat._device (the device-resident fit/OOF orchestration). Only this
+# module touches cudf/cupy; _device works with the returned arrays through operators alone.
+
+
+def to_host_1d(y) -> np.ndarray:
+    """Any 1-D target container -> host numpy (one explicit D2H for device containers)."""
+    import cudf
+    import cupy as cp
+
+    if isinstance(y, cudf.Series):
+        return y.to_pandas().to_numpy()
+    if isinstance(y, cp.ndarray):
+        return cp.asnumpy(y)
+    return np.asarray(y)
+
+
+def to_device(arr):
+    """Host (or device) array -> cupy array (no copy if already resident)."""
+    import cupy as cp
+
+    return cp.asarray(arr)
+
+
+def to_device_float(y):
+    """Continuous target -> float64 cupy array (accepts cudf.Series / cupy / host numpy)."""
+    import cudf
+    import cupy as cp
+
+    if isinstance(y, cudf.Series):
+        return y.astype("float64").to_cupy()
+    return cp.asarray(y, dtype="float64")
+
+
+def binarize_device(y, pos):
+    """One-vs-rest indicator ``(y == pos)`` as float64 cupy (labels may be host strings)."""
+    import cudf
+    import cupy as cp
+
+    if isinstance(y, cudf.Series):
+        return (y == pos).astype("float64").to_cupy()
+    if isinstance(y, cp.ndarray):
+        return (y == pos).astype(cp.float64)
+    return cp.asarray((np.asarray(y) == pos).astype(float))
+
+
+def factorize_column(ser, handle_missing):
+    """cuDF factorize of one column: ``(codes int64 cupy, uniques host pd.Index, missing mask)``.
+
+    Nulls factorize to ``-1``. Under ``handle_missing='value'`` they are remapped to their own
+    trailing level whose host key is the ``MISSING`` sentinel -- exactly what
+    ``_validation.normalize_keys`` produces on the host path; under ``'return_nan'`` the ``-1``
+    stays (those rows are inactive); ``'error'`` is the caller's job (it has the unit name).
+    ``uniques`` is a value-stable host index, so a device-fitted encoder transforms pandas input
+    with the ordinary host machinery.
+    """
+    import cupy as cp
+
+    from .._validation import MISSING
+
+    codes, uniq = ser.factorize()
+    codes = cp.asarray(codes).astype(cp.int64)
+    missing = codes < 0
+    uniques = pd.Index(np.asarray(uniq.to_pandas(), dtype=object))
+    if handle_missing == "value" and bool(missing.any()):
+        codes = cp.where(missing, cp.int64(len(uniques)), codes)
+        uniques = uniques.append(pd.Index([MISSING], dtype=object))
+    return codes, uniques, missing
+
+
+def joint_codes_device(radices, comp_codes):
+    """Mixed-radix int64 joint code on device (twin of ``_cross_fit.joint_codes``).
+
+    Any negative component code (a null under ``handle_missing='return_nan'``) forces the row's
+    joint code to ``-1`` -- the inactive sentinel, exactly like the host builder.
+    """
+    import cupy as cp
+
+    joint = cp.zeros(comp_codes[0].shape[0], dtype=cp.int64)
+    neg = cp.zeros(comp_codes[0].shape[0], dtype=cp.bool_)
+    for radix, codes in zip(radices, comp_codes):
+        neg = neg | (codes < 0)
+        joint = joint * cp.int64(radix) + codes
+    if bool(neg.any()):
+        joint[neg] = -1
+    return joint
+
+
+def dense_codes(joint, has_negative):
+    """Re-encode sparse mixed-radix joint codes densely: ``(codes cupy, uniques Int64 Index)``.
+
+    The observed joint codes become the unit's canonical (host) index -- the device counterpart
+    of the host path's group-by-observed index (order differs; encodings are per-category so the
+    output is unaffected). Rows with ``joint == -1`` are nulled first so they stay ``-1``.
+    """
+    import cudf
+    import cupy as cp
+
+    s = cudf.Series(joint)
+    if has_negative:
+        s = s.where(cudf.Series(joint >= 0), None)
+    codes, uniq = s.factorize()
+    return cp.asarray(codes).astype(cp.int64), pd.Index(uniq.to_pandas())
+
+
+def code_moments(codes, y, n_cat, order: int = 2):
+    """Per-code count + raw power sums on device -> small host float64 arrays.
+
+    ``codes`` must be dense in ``[0, n_cat)`` (the caller pre-filters negatives). ``y`` of
+    ``None`` returns ``(count,)`` only (count/frequency). The caller pre-shifts ``y`` when it
+    wants stable shape/dispersion reconstruction.
+    """
+    import cupy as cp
+
+    codes = cp.asarray(codes)
+    cnt = cp.bincount(codes, minlength=n_cat).astype(cp.float64)
+    if y is None:
+        return (cp.asnumpy(cnt),)
+    yv = cp.asarray(y, dtype="float64")
+    s1 = cp.bincount(codes, weights=yv, minlength=n_cat)
+    y2 = yv * yv
+    s2 = cp.bincount(codes, weights=y2, minlength=n_cat)
+    if order < 4:
+        return cp.asnumpy(cnt), cp.asnumpy(s1), cp.asnumpy(s2)
+    s3 = cp.bincount(codes, weights=y2 * yv, minlength=n_cat)
+    s4 = cp.bincount(codes, weights=y2 * y2, minlength=n_cat)
+    return cp.asnumpy(cnt), cp.asnumpy(s1), cp.asnumpy(s2), cp.asnumpy(s3), cp.asnumpy(s4)
+
+
+def gather_cells(values, codes):
+    """Device gather ``values[codes]`` (values H2D'd if host); ``codes < 0`` -> NaN."""
+    import cupy as cp
+
+    v = cp.asarray(values, dtype=cp.float64)
+    codes = cp.asarray(codes)
+    neg = codes < 0
+    out = v[cp.where(neg, 0, codes)]
+    if bool(neg.any()):
+        out[neg] = cp.nan
+    return out
+
+
+def scatter_active(vals, active, n: int):
+    """Full-length device column: ``vals`` at the active positions, NaN elsewhere."""
+    import cupy as cp
+
+    if active is None:
+        return cp.asarray(vals, dtype=cp.float64)
+    out = cp.full(n, cp.nan, dtype=cp.float64)
+    out[cp.asarray(active)] = vals
+    return out
+
+
+def stack_to_host(cols) -> np.ndarray:
+    """Stack device columns into an (n, k) matrix and copy to host once (output='numpy')."""
+    import cupy as cp
+
+    return cp.asnumpy(cp.stack([cp.asarray(c, dtype=cp.float64) for c in cols], axis=1))
+
+
 def oof_moment_tables(comp, y, size, order):
     """GPU twin of ``_cpu.oof_moment_tables``: per-(fold, key) sums via ``cupy.bincount``.
 

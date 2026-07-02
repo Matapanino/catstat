@@ -70,6 +70,15 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
   neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
   `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- ✅ **B3 — device transform + cuDF output (2026-07-02, validated on T4)**: `output="cudf"` is a
+  first-class container (device input returns cuDF by default; host input + `output='cudf'` does
+  one explicit H2D); sklearn `set_output('pandas'/'polars')` wins over the `output` param;
+  `transform` accepts cuDF input on any fitted encoder (device hash-join codes against the
+  fit-time host index + device gather + on-device unknown/missing policy).
+- ✅ **B4 — device order-stat OOF (2026-07-02, validated on T4)**: median/min/max fit + per-fold
+  OOF on device-resident codes/y/fold-ids — only per-code tables and one scalar per fold leave
+  the GPU, removing the per-fold row transfers that dominated KI-020's non-additive numbers.
+  **T4: full suite 358 passed** incl. the whole device matrix.
 - ✅ **B2 — cuDF input, device-resident (2026-07-02, validated on Colab T4)**: `fit`/`fit_transform`
   accept a cuDF DataFrame (+ cupy/cudf/numpy y) and keep it on device end-to-end: cudf factorize
   with a MISSING-level remap mirroring `normalize_keys`, device mixed-radix joint codes densified

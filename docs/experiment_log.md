@@ -470,3 +470,13 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   keep WOE's exact ±inf); dedicated offset parity test added; **T4 suite 360 passed** post-fix.
   Parity-table regeneration deferred (Colab session-assignment quota); crossover unaffected.
 - Verdict: KEEP auto off; device-resident path shipped. `2026-07-02-gpu-device-path-verdict.md`.
+
+## 2026-07-02 — 0.5.0 released to PyPI (ops, not an experiment)
+- The stats arc (kurt / moments-based skew / woe) + PR-D device-resident cuDF pipelines shipped as
+  **0.5.0** via PR #22 (16 commits) and release PR #23. CI note: the new GPU-only
+  `catstat/_device.py` dropped the CPU coverage lane to 72% → added to the coverage `omit` list
+  (like `backends/_gpu.py`; its behavior is covered by the gpu-marked suite on T4).
+- `v0.5.0` tagged + pushed → Release workflow (Trusted Publishing) green → **live on PyPI**
+  (wheel + sdist); GitHub Release created from the CHANGELOG section; clean-venv
+  `pip install catstat==0.5.0` imports and encodes.
+- No defaults changed: `_AUTO_GPU_ENABLED` stays off per the fresh crossover verdict.

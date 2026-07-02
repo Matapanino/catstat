@@ -16,6 +16,9 @@ All notable changes to `catstat` are documented here. Format follows
   (`category_moments`, shifted by the global mean for numerical stability) instead of pandas
   `groupby.skew`. Results are unchanged (allclose vs pandas, incl. `y ~ 1e9 ± 1` offsets), but
   both stats are now **GPU-supported** — requesting `skew` no longer forces the CPU backend.
+- **`skew`/`kurt` `fit_transform` now uses the single-pass additive OOF kernel** (order-4 shifted
+  power sums + complement subtraction) instead of the per-fold group-by loop — same values
+  (allclose; leakage audit re-passed), much faster for high-cardinality data.
 
 ## [0.4.0] — 2026-06-27
 

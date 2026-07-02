@@ -23,6 +23,7 @@ from ._cross_fit import (
     factorize_active,
     finalize_dispersion_oof,
     finalize_mean_oof,
+    finalize_shape_oof,
     gather,
     joint_codes,
     loo_encode,
@@ -46,7 +47,9 @@ from .backends._dispatch import backend_module, select_backend
 
 _VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
 _DEFERRED_OUTPUT = ("cudf", "cupy")
-_ADDITIVE_STATS = frozenset({"mean", "var", "std"})  # stats the single-pass kernel can finalize
+# stats the single-pass kernel can finalize from (fold, key) power sums; skew/kurt need order-4
+_ADDITIVE_STATS = frozenset({"mean", "var", "std", "skew", "kurt"})
+_SHAPE_STATS = frozenset({"skew", "kurt"})
 
 
 @dataclass(frozen=True)
@@ -520,11 +523,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
         folds = make_folds(Xdf.shape[0], y_arr, splitter)
-        # Fast path: additive stats (mean/var/std) are reconstructed from one composite (fold, key)
-        # aggregation via complement subtraction instead of a per-fold group-by loop -- exactly
-        # equivalent (allclose; leakage-audited). Hybrid: when both additive and non-additive
-        # (median/min/max/skew/custom) stats are requested, the additive columns take the fast
-        # kernel and only the non-additive ones fall to the per-fold loop. Needs a partitioning CV.
+        # Fast path: additive stats (mean/var/std/skew/kurt) are reconstructed from one composite
+        # (fold, key) power-sum aggregation via complement subtraction instead of a per-fold
+        # group-by loop -- exactly equivalent (allclose; leakage-audited). Hybrid: when both
+        # additive and non-additive (median/min/max/custom) stats are requested, the additive
+        # columns take the fast kernel and only the non-additive ones fall to the per-fold loop.
+        # Needs a partitioning CV.
         add_cols = [
             j
             for j, m in enumerate(self._columns_meta)
@@ -564,10 +568,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         return fold_id
 
     def _kfold_oof_additive_fast(self, Xdf, y_arr, fold_id, n_folds, oof, col_indices):
-        """Fill the additive (mean/var/std) OOF columns in ``col_indices`` via the single-pass
-        kernel. Per unit the keys are factorized once; for a continuous target the complement
-        moments are computed once and shared across that unit's mean/var/std columns (var/std are
-        continuous-only, so classification only ever finalizes the mean, one pass per class)."""
+        """Fill the additive (mean/var/std/skew/kurt) OOF columns in ``col_indices`` via the
+        single-pass kernel. Per unit the keys are factorized once; for a continuous target the
+        complement moments are computed once and shared across that unit's columns. A unit with a
+        shape stat upgrades the shared pass to order-4 sums shifted by the global mean (exact:
+        shift-invariant stats; the mean finalizer un-shifts) -- units without shape stats keep the
+        order-2 zero-shift pass bit-identical. Dispersion/shape are continuous-only, so
+        classification only ever finalizes the mean, one pass per class."""
         by_unit: dict = {}
         for j in col_indices:
             meta = self._columns_meta[j]
@@ -578,10 +585,18 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             n, a, codes, n_cat = factorize_active(keys, missing_mask, self.handle_missing)
             fid_a = fold_id[a]
             if self.target_type_ == "continuous":
-                mom = complement_moments(n, a, codes, n_cat, fid_a, y_arr.astype(float)[a], n_folds)
+                y_act = y_arr.astype(float)[a]
+                shape_req = any(meta.stat in _SHAPE_STATS for _j, meta in items)
+                order = 4 if shape_req else 2
+                shift = float(y_act.mean()) if shape_req and y_act.size else 0.0
+                mom = complement_moments(
+                    n, a, codes, n_cat, fid_a, y_act, n_folds, order=order, shift=shift
+                )
                 for j, meta in items:
                     if meta.stat == "mean":
                         oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                    elif meta.stat in _SHAPE_STATS:
+                        oof[:, j] = finalize_shape_oof(mom, meta.stat, ms, self.handle_unknown)
                     else:
                         oof[:, j] = finalize_dispersion_oof(mom, meta.stat, ms, self.handle_unknown)
             else:  # binary/multiclass: mean only, one moment pass per class (factorize shared)

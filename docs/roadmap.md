@@ -59,7 +59,12 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   **power-sum moments** (`category_moments` on both backends; global-mean shift for numerical
   stability) — pandas-matching (adjusted G1 / bias-corrected G2, `n<3`/`n<4` → global fallback,
   constant category → 0.0) and now **GPU-supported** (skew no longer forces the CPU backend).
-  OOF still rides the per-fold slow path (fast-kernel next). `test_shape_stats.py`.
+  `test_shape_stats.py`.
+- ✅ **Stats arc 2 (2026-07-02)**: skew/kurt joined the **single-pass additive OOF kernel**
+  (`_ADDITIVE_STATS`): the shared `(fold, key)` pass upgrades to order-4 shifted power sums when a
+  shape stat is requested (`finalize_shape_oof`; per-stat min-n fallback via `_STAT_MIN_N`), so
+  skew/kurt no longer force the per-fold slow loop. fast==slow at allclose across the fallback
+  matrix incl. a 1e9-offset case; leakage audit re-passed. `test_additive_fast_path.py`.
 - ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
   modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
 - ✅ **Phase 3c**: `output="polars"` (returns a polars DataFrame; lazy import, optional dep).

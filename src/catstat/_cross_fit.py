@@ -90,11 +90,14 @@ def ordered_encode(keys, y, a: float, prior: float, perm: np.ndarray) -> np.ndar
 
 
 class _OOFMoments(NamedTuple):
-    """Per-(fold, key) complement count/sum/sumsq plus per-fold complement totals.
+    """Per-(fold, key) complement power sums plus per-fold complement totals.
 
     Computed once per (encoding unit, target vector) by :func:`complement_moments`; each statistic's
-    finalizer reads these shared moments, so a unit's mean/var/std cost one factorize and one
-    composite ``(fold, key)`` bincount between them -- the per-fold group-by loop is avoided.
+    finalizer reads these shared moments, so a unit's mean/var/std/skew/kurt cost one factorize and
+    one composite ``(fold, key)`` bincount pass between them -- the per-fold group-by loop is
+    avoided. All sums are of ``y' = y - shift`` (``shift=0.0`` unless a shape stat asked for the
+    stabilizing global-mean shift; central moments are shift-invariant, and the mean finalizer adds
+    ``shift`` back). ``c3``/``c4`` (sums of ``y'**3``/``y'**4``) are populated only for ``order=4``.
     """
 
     n: int  # total rows (output length)
@@ -107,6 +110,16 @@ class _OOFMoments(NamedTuple):
     cn: np.ndarray  # complement count per fold
     cs_fold: np.ndarray  # complement sum per fold
     css_fold: np.ndarray  # complement sum-of-squares per fold
+    c3: np.ndarray | None = None  # complement sum of y'**3 per active row (order=4 only)
+    c4: np.ndarray | None = None  # complement sum of y'**4 per active row (order=4 only)
+    c3_fold: np.ndarray | None = None  # per-fold complement sum of y'**3 (order=4 only)
+    c4_fold: np.ndarray | None = None  # per-fold complement sum of y'**4 (order=4 only)
+    shift: float = 0.0  # subtracted from y before the sums; mean finalizer adds it back
+
+
+# smallest complement count for which a dispersion/shape stat is defined (ddof=1 variance needs 2,
+# bias-corrected G1 skew needs 3, bias-corrected G2 kurtosis needs 4); below it -> fold-global.
+_STAT_MIN_N = {"var": 2, "std": 2, "skew": 3, "kurt": 4}
 
 
 def factorize_active(keys, missing_mask, handle_missing):
@@ -221,16 +234,24 @@ def decode_joint(plan: _JointKeyPlan, codes) -> list:
     ]
 
 
-def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _OOFMoments:
-    """Out-of-fold ``(count, sum, sumsq)`` per active row, by subtraction from the grand totals of
-    one composite ``(fold, key)`` aggregation.
+def complement_moments(
+    n, a, codes, n_cat, fid_active, yv_active, n_folds, order: int = 2, shift: float = 0.0
+) -> _OOFMoments:
+    """Out-of-fold power sums per active row, by subtraction from the grand totals of one
+    composite ``(fold, key)`` aggregation.
 
     Under a partitioning CV (``KFold``/``StratifiedKFold``) the complement of test-fold ``f`` is
     exactly its train set, so each fold's moments are ``global - this_fold``. ``yv_active`` is the
     (possibly binarized) target over the active rows. This is the single pass shared by the mean,
-    var and std finalizers; parity vs the per-fold path is asserted at allclose by the audit.
+    var/std and (with ``order=4``, which adds the ``y'**3``/``y'**4`` sums) skew/kurt finalizers;
+    parity vs the per-fold path is asserted at allclose by the audit. ``shift`` is subtracted from
+    ``y`` first (exact for shift-invariant stats; the mean finalizer adds it back) so the shape
+    stats' subtractive moment reconstruction stays numerically stable. The defaults keep the
+    order-2 callers bit-identical to the pre-shape-stats kernel.
     """
     y_a = np.asarray(yv_active, dtype=float)
+    if shift != 0.0:
+        y_a = y_a - shift
     y2_a = y_a * y_a
 
     # one composite (fold, key) aggregation via flattened bincount; per-key globals by summing folds
@@ -248,10 +269,26 @@ def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _O
     cs = gs[codes] - fs[comp]
     css = gss[codes] - fss[comp]
 
-    # per-fold complement totals (the fold's training set): prior mean / global var fallback
+    # per-fold complement totals (the fold's training set): prior mean / global-stat fallback
     tn = np.bincount(fid_active, minlength=n_folds).astype(float)
     ts = np.bincount(fid_active, weights=y_a, minlength=n_folds)
     tss = np.bincount(fid_active, weights=y2_a, minlength=n_folds)
+
+    c3 = c4 = c3_fold = c4_fold = None
+    if order >= 4:  # shape stats: two more weighted passes over the same composite index
+        y3_a = y2_a * y_a
+        y4_a = y2_a * y2_a
+        fs3 = np.bincount(comp, weights=y3_a, minlength=size)
+        fs4 = np.bincount(comp, weights=y4_a, minlength=size)
+        gs3 = fs3.reshape(n_folds, n_cat).sum(0)
+        gs4 = fs4.reshape(n_folds, n_cat).sum(0)
+        c3 = gs3[codes] - fs3[comp]
+        c4 = gs4[codes] - fs4[comp]
+        ts3 = np.bincount(fid_active, weights=y3_a, minlength=n_folds)
+        ts4 = np.bincount(fid_active, weights=y4_a, minlength=n_folds)
+        c3_fold = ts3.sum() - ts3
+        c4_fold = ts4.sum() - ts4
+
     return _OOFMoments(
         n=n,
         a=a,
@@ -263,13 +300,22 @@ def complement_moments(n, a, codes, n_cat, fid_active, yv_active, n_folds) -> _O
         cn=tn.sum() - tn,  # > 0 for n_folds >= 2 (always: KFold rejects n_splits < 2)
         cs_fold=ts.sum() - ts,
         css_fold=tss.sum() - tss,
+        c3=c3,
+        c4=c4,
+        c3_fold=c3_fold,
+        c4_fold=c4_fold,
+        shift=shift,
     )
 
 
 def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
     """OOF mean encoding from the shared moments (fixed m-estimate and ``smooth='auto'``
     empirical-Bayes with the per-fold complement population mean/variance). Identical arithmetic to
-    the original single-pass mean kernel; mirrors ``_smoothing.fit_mean_encoding`` per fold."""
+    the original single-pass mean kernel; mirrors ``_smoothing.fit_mean_encoding`` per fold. When
+    the moments were computed on shifted values (``mom.shift != 0``) the shift is added back at the
+    scatter -- both smoothers are affine-equivariant (a convex blend of shifted means plus ``shift``
+    equals the blend of unshifted means; the EB weights use only shift-invariant variances), so the
+    result is the unshifted encoding exactly (up to fp rounding, covered by the allclose audit)."""
     out = np.full(mom.n, np.nan, dtype=float)
     if mom.a.size == 0:
         return out
@@ -298,19 +344,21 @@ def finalize_mean_oof(mom: _OOFMoments, smooth, handle_unknown) -> np.ndarray:
             )
         enc = np.where(seen, enc, g_row if handle_unknown == "value" else np.nan)
 
-    out[mom.a] = enc
+    # un-shift (NaN survives the add); guard keeps the shift=0 path bit-identical (incl. -0.0)
+    out[mom.a] = enc if mom.shift == 0.0 else enc + mom.shift
     return out
 
 
 def finalize_dispersion_oof(mom: _OOFMoments, stat, min_samples, handle_unknown) -> np.ndarray:
     """OOF var/std encoding from the SAME shared moments -- no smoothing (honesty rule).
 
-    A seen category whose complement count is ``< max(min_samples, 1)`` or ``< 2`` (sample
-    variance undefined for a singleton, ddof=1) falls back to the per-fold complement-global
-    statistic; unseen categories (absent from the fold's complement) follow ``handle_unknown``.
-    Mirrors ``_aggregations.fit_stat_encoding`` fitted on each fold's complement and mapped to the
-    held-out rows. The complement-global sample variance is ``(ss - s**2/cn)/(cn - 1)`` (0.0 when
-    cn <= 1).
+    A seen category whose complement count is ``< max(min_samples, 1)`` or ``< _STAT_MIN_N[stat]``
+    (sample variance undefined for a singleton, ddof=1) falls back to the per-fold
+    complement-global statistic; unseen categories (absent from the fold's complement) follow
+    ``handle_unknown``. Mirrors ``_aggregations.fit_stat_encoding`` fitted on each fold's
+    complement and mapped to the held-out rows. The complement-global sample variance is
+    ``(ss - s**2/cn)/(cn - 1)`` (0.0 when cn <= 1). Var/std are shift-invariant, so moments
+    computed on shifted values need no correction here.
     """
     out = np.full(mom.n, np.nan, dtype=float)
     if mom.a.size == 0:
@@ -326,7 +374,7 @@ def finalize_dispersion_oof(mom: _OOFMoments, stat, min_samples, handle_unknown)
         var_raw = (css - cs * mean_c) / np.where(cc > 1, cc - 1.0, 1.0)  # (ss - s**2/cc)/(cc-1)
 
     # seen but undersupported (incl. singleton: var is NaN) -> per-fold complement-global stat
-    lowcount = (cc < max(int(min_samples), 1)) | (cc < 2)
+    lowcount = (cc < max(int(min_samples), 1)) | (cc < _STAT_MIN_N[stat])
     enc = np.where(lowcount, g_var_row, var_raw)
     if not seen.all():
         if handle_unknown == "error":
@@ -336,6 +384,40 @@ def finalize_dispersion_oof(mom: _OOFMoments, stat, min_samples, handle_unknown)
         enc = np.where(seen, enc, g_var_row if handle_unknown == "value" else np.nan)
     if stat == "std":
         enc = np.sqrt(np.clip(enc, 0.0, None))  # std = sqrt(var); clip guards fp cancellation
+    out[mom.a] = enc
+    return out
+
+
+def finalize_shape_oof(mom: _OOFMoments, stat, min_samples, handle_unknown) -> np.ndarray:
+    """OOF skew/kurt encoding from the SAME shared (order-4) moments -- no smoothing (honesty
+    rule; shape stats never blend).
+
+    Structure mirrors :func:`finalize_dispersion_oof`: a seen category whose complement count is
+    ``< max(min_samples, 1)`` or where the statistic is undefined (``n < 3`` skew / ``n < 4``
+    kurt, NaN from the reconstruction) falls back to the per-fold complement-global G1/G2 (itself
+    0.0 when undefined, mirroring ``_aggregations.global_stat``); unseen categories follow
+    ``handle_unknown``. G1/G2 are shift-invariant, so the shifted sums need no correction.
+    """
+    from ._aggregations import g1_g2_from_power_sums
+
+    out = np.full(mom.n, np.nan, dtype=float)
+    if mom.a.size == 0:
+        return out
+    g_fold = g1_g2_from_power_sums(
+        mom.cn, mom.cs_fold, mom.css_fold, mom.c3_fold, mom.c4_fold, stat
+    )
+    g_fold = np.where(np.isnan(g_fold), 0.0, g_fold)  # fold-global undefined -> 0.0
+    g_row = g_fold[mom.fid]
+    val = g1_g2_from_power_sums(mom.cc, mom.cs, mom.css, mom.c3, mom.c4, stat)
+    # seen but undersupported (NaN: n below the stat's min-n) -> per-fold complement-global stat
+    lowcount = (mom.cc < max(int(min_samples), 1)) | np.isnan(val)
+    enc = np.where(lowcount, g_row, val)
+    if not mom.seen.all():
+        if handle_unknown == "error":
+            raise ValueError(
+                "Found unknown categories during out-of-fold encoding (handle_unknown='error')."
+            )
+        enc = np.where(mom.seen, enc, g_row if handle_unknown == "value" else np.nan)
     out[mom.a] = enc
     return out
 

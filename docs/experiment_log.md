@@ -423,3 +423,21 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   perf claim). Value parity max|Δ| ≤ 1.24e-14 (woe exact). Leakage audit re-PASS. Standard
   harness: no regressions vs baseline. `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
 - Verdict: KEEP; baseline unchanged. Next: B1 `oof_moment_tables` on device (cupy.bincount).
+
+## 2026-07-02 — B1/B2: device OOF kernel + cuDF input (validated on Colab T4)
+- Change: `_gpu.oof_moment_tables` (cupy.bincount, order 2/4) injected through the B0 seam (B1);
+  `catstat._device` orchestration for cuDF input — device factorize/joint-codes/moment-reduce/OOF/
+  gather, shared host smoothing+cell math, `is_device_frame` + `select_backend(device_input=)`
+  routing (B2). Branch `feat/shape-stats-moments`.
+- Colab friction (all fixed in `scripts/colab_gpu_tests.py`): (1) Colab ships a dist-packages
+  *regular* `tests` package that shadows the repo's namespace `tests/` → touch
+  `tests/__init__.py` on the VM; (2) blind `pip install cudf-cu12` can outrun the driver — prefer
+  the image's preinstalled RAPIDS (cu12 26.2.1 works); (3) **stripping the subprocess env loses
+  `LD_LIBRARY_PATH` → CUDA binds a stub libcuda → `cudaErrorInsufficientDriver`** even though the
+  GPU is fine — inherit `os.environ`; (4) a lost session (404) makes `colab exec` hang → always
+  run under an external watchdog.
+- Result: **T4 full suite 351 passed, 1 skipped** incl. all 24 gpu-marked tests: B1 kernel parity,
+  skew/kurt/woe GPU parity, and the whole device-input matrix (continuous/missing/binary+woe/
+  multiclass/combination/interactions/y-containers/fences/determinism/device-fit→pandas-transform)
+  at allclose rtol=1e-5.
+- Verdict: KEEP. Perf numbers deferred to the B5 three-lane crossover.

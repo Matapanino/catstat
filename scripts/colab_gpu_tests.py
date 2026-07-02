@@ -9,6 +9,7 @@ suite (the CPU tests double as a Linux/py3.12 check), and writes ``/content/gpu_
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,13 +39,14 @@ def main() -> int:
     if probe.returncode != 0:
         _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
     _sh([sys.executable, "-m", "pip", "install", "-q", "pytest", "scikit-learn"])
-    env_path = f"{WORK}/src"
+    # inherit the full environment: stripping it loses LD_LIBRARY_PATH & friends and the CUDA
+    # runtime then binds a stub libcuda -> cudaErrorInsufficientDriver (seen 2026-07-02)
+    env = dict(os.environ, PYTHONPATH=f"{WORK}/src", OMP_NUM_THREADS="1")
     res = _sh(
         [sys.executable, "-m", "pytest", "tests/", "-q", "-rf", "--tb=short",
          "-p", "no:cacheprovider"],
         cwd=str(WORK),
-        env={"PYTHONPATH": env_path, "PATH": "/usr/bin:/bin:/usr/local/bin",
-             "OMP_NUM_THREADS": "1", "HOME": "/root"},
+        env=env,
         capture_output=True,
         text=True,
     )

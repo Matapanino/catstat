@@ -70,7 +70,16 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
   neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
   `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
-- ✅ **B1 — device additive OOF kernel (2026-07-02, code complete; T4 validation pending B5)**:
+- ✅ **B2 — cuDF input, device-resident (2026-07-02, validated on Colab T4)**: `fit`/`fit_transform`
+  accept a cuDF DataFrame (+ cupy/cudf/numpy y) and keep it on device end-to-end: cudf factorize
+  with a MISSING-level remap mirroring `normalize_keys`, device mixed-radix joint codes densified
+  on device (host `_JointKeyPlan` -> pandas-input transform reuses the host machinery), on-device
+  moment reductions through the shared host smoothing/finalizer math, device OOF + gather, one
+  D2H for the final matrix (`output='numpy'` for now). Device input routes to GPU regardless of
+  `_AUTO_GPU_ENABLED` (categorical signal); `backend='cpu'` + cuDF raises. Fences: numeric /
+  loo-ordered / median-min-max (B4) / custom / non-numpy output. **T4: full suite 351 passed
+  incl. 24 gpu tests** (`tests/test_device_input.py`, `scripts/colab_gpu_tests.py`).
+- ✅ **B1 — device additive OOF kernel (2026-07-02, validated on Colab T4 via the B2 suite)**:
   `_gpu.oof_moment_tables` (`cupy.bincount`, order 2/4; one H2D of comp+y per unit, small tables
   back) injected through the B0 seam — under `backend="gpu"` the additive OOF path (mean/var/std/
   skew/kurt/woe) now runs its heavy pass on device instead of never touching the GPU. Parity test

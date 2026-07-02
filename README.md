@@ -8,10 +8,19 @@
 Unified CPU/GPU **statistical categorical encoding**: leakage-safe target encoding generalized to
 arbitrary statistics, behind one scikit-learn-compatible API.
 
-Runs on CPU (pandas/numpy) today. The GPU path (cuDF/CuPy) is **parity-validated** (CPU/GPU
-allclose) but not yet faster than CPU up to ~1M rows, so `backend="auto"` resolves to **CPU**;
-explicit `backend="gpu"` is available for device-resident pipelines and larger data. See
-[`docs/roadmap.md`](docs/roadmap.md) and [`docs/known_issues.md`](docs/known_issues.md) (KI-020).
+Runs on CPU (pandas/numpy) and on GPU (RAPIDS cuDF/CuPy), parity-validated (CPU/GPU allclose).
+**Device-resident pipelines are where the GPU pays off**: pass a cuDF DataFrame and the whole
+encode — factorize, cross-fitting, gather, output — stays on the device (Colab T4: ~2.6× at 100k
+rows to ~6–13× at 1M–10M rows vs CPU, returning cuDF). For *pandas-origin* data the
+host↔device copies eat the win (~1.1× at best), so `backend="auto"` still resolves to **CPU**;
+cuDF input routes to the GPU automatically. See [`docs/roadmap.md`](docs/roadmap.md) and
+[`docs/known_issues.md`](docs/known_issues.md) (KI-020).
+
+```python
+import cudf
+enc = TargetEncoder(cols=["cat"], stats=["mean", "var"])   # backend="auto"
+out = enc.fit_transform(cudf.from_pandas(X), y)            # stays on device; returns cuDF
+```
 
 ## Install
 

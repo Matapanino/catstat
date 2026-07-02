@@ -455,3 +455,18 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   {pandas,cuDF} in, set_output override, transform-parity (host- and device-fitted, unknown/
   missing probes, combination), order-stat parity incl. hybrid mean+median and tiny complements.
 - Verdict: KEEP. Perf → B5 three-lane crossover (running).
+
+## 2026-07-02 — B5: fresh T4 three-lane crossover (PR-D verdict)
+- Measurement: parity (17 cases) + crossover with lanes {cpu, gpu-host-origin, gpu-device-resident}
+  × profiles {mean, mean+var+skew+kurt} at n=10k…10M (reps 5 at ≥1M), + median lane + transform-only.
+  RMM pool on; conversions outside the timed region; device lane cuDF in/out (no D2H timed).
+- Result: host-origin unchanged vs history (0.23×@10k → 1.09–1.19×@1M–10M; **flip criterion not
+  met → `_AUTO_GPU_ENABLED` stays False**, `_GPU_CELL_THRESHOLD` untouched). Device-resident:
+  **2.56×@100k, 5.84×@1M, 6.37×@10M (mean); 8.4–10.8× (order-4 profile); 10.1–12.4× (median);
+  transform ×6.6–13.2** — the PR-D deliverable; routes to GPU categorically for cuDF input.
+- Parity found one real bug: `shape_offset_1e9` transform MISMATCH (max|Δ|=2049) — the *fit* path's
+  unshifted reductions (EB var_pop, cuDF one-pass var) cancel differently per backend at
+  |mean|≫sd. Fixed by shift-stable fit reductions (continuous targets only; binarized exempt to
+  keep WOE's exact ±inf); dedicated offset parity test added; **T4 suite 360 passed** post-fix.
+  Parity-table regeneration deferred (Colab session-assignment quota); crossover unaffected.
+- Verdict: KEEP auto off; device-resident path shipped. `2026-07-02-gpu-device-path-verdict.md`.

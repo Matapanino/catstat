@@ -6,6 +6,16 @@ All notable changes to `catstat` are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Device-resident cuDF pipelines** (`backend="gpu"`/`"auto"`): `fit`/`fit_transform`/`transform`
+  accept a cuDF DataFrame (y as cupy/cudf/numpy) and keep the data on the GPU end-to-end —
+  device factorize, int64 joint codes, on-device OOF kernel, device gather — returning cuDF by
+  default (`output="auto"`); `output="cudf"` also works from pandas input (one explicit H2D).
+  Device input routes to the GPU *regardless* of the auto-GPU flag (device residency is a
+  categorical signal, never a silent transfer; `backend="cpu"` + cuDF raises). On a Colab T4 the
+  device-resident lane runs **~2.6× (100k rows) to ~6–13× (1M–10M rows)** faster than CPU across
+  mean/multi-stat/median profiles and transform. sklearn `set_output(transform="pandas")` still
+  wins and returns pandas. Not yet on device: custom callables, `numeric` encoding,
+  `scheme="loo"/"ordered"` (clear errors point to `.to_pandas()`).
 - **`stats=["kurt"]`** — per-category excess kurtosis (bias-corrected G2, matching pandas
   `Series.kurt`). Continuous targets only; no smoothing (honesty rule); `n < 4` or unseen
   categories fall back to the global kurtosis (0.0 if itself undefined); a constant category

@@ -157,8 +157,6 @@ def test_device_input_fences():  # pragma: no cover - GPU only
     Xg, _Xp, y = _device_data(n=1_000, k=50)
     with pytest.raises(ValueError, match="to_pandas"):
         TargetEncoder(cols=["g"], backend="cpu").fit(Xg, y)
-    with pytest.raises(NotImplementedError, match="median"):
-        TargetEncoder(cols=["g"], stats=["median"], output="numpy").fit(Xg, y)
     with pytest.raises(ValueError, match="CPU-only"):
         TargetEncoder(
             cols=["g"], stats=[("q9", lambda v: np.quantile(v, 0.9))], output="numpy"
@@ -242,6 +240,28 @@ def test_transform_cudf_input_parity():  # pragma: no cover - GPU only
     ref_c = np.asarray(cpu_c.transform(probe_pd))
     got_c = np.asarray(dev_c.transform(probe))
     assert np.allclose(ref_c, got_c, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("stats", [["median"], ["min", "max"], ["mean", "median"]])
+def test_device_input_order_stats_parity(stats):  # pragma: no cover - GPU only
+    """median/min/max on device: per-fold device group-by OOF (no per-fold H2D of row data)
+    must match the CPU slow path at allclose, incl. the hybrid mean+median case and small
+    categories exercising the complement-global fallback."""
+    Xg, Xp, y = _device_data(n=50_000, k=2_000, seed=6)  # ~25 rows/cat: some tiny complements
+    kw = dict(cols=["g"], stats=stats, cv=5, random_state=0, output="numpy")
+    _parity(kw, Xg, Xp, y)
+
+
+@pytest.mark.gpu
+def test_device_input_order_stats_missing_and_unknown():  # pragma: no cover - GPU only
+    Xg, Xp, y = _device_data(n=50_000, k=2_000, seed=7, missing=0.1)
+    for hm in ("value", "return_nan"):
+        kw = dict(
+            cols=["g"], stats=["median"], handle_missing=hm, cv=5, random_state=0,
+            output="numpy",
+        )
+        _parity(kw, Xg, Xp, y)
 
 
 @pytest.mark.gpu

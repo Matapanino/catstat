@@ -33,8 +33,8 @@ from ._cross_fit import (
 from ._smoothing import mean_from_stats, woe_from_prob
 from .backends import _gpu
 
-# non-additive order stats need the per-fold device group-by loop (stage B4)
-DEVICE_PENDING_STATS = frozenset({"median", "min", "max"})
+# order stats: no additive complement trick -- a per-fold device group-by loop instead
+_ORDER_STATS = frozenset({"median", "min", "max"})
 
 
 def check_device_fences(est, specs) -> None:
@@ -58,11 +58,6 @@ def check_device_fences(est, specs) -> None:
             raise ValueError(
                 f"stat={spec.name!r} is CPU-only (custom callables have no GPU primitive); "
                 "convert with X.to_pandas() to use it."
-            )
-        if spec.name in DEVICE_PENDING_STATS:
-            raise NotImplementedError(
-                f"stat={spec.name!r} with cuDF input is not supported yet (device order-stat "
-                "OOF lands with stage B4); convert with X.to_pandas()."
             )
 
 
@@ -221,6 +216,12 @@ def _fit_target_stats_device(est, feat, codes_act, active, uniques, n_cat, y, ms
                 gv = float(g_arr[0]) if np.isfinite(g_arr[0]) else 0.0
                 vals = np.where(np.isnan(vals) | (cnt < max(ms, 1)), gv, vals)
                 entries.append(((feat, spec.name, None), pd.Series(vals, index=uniques), gv))
+            elif spec.name in _ORDER_STATS:
+                # raw (unshifted) y: order stats need actual values, not moments
+                vals = _gpu.category_agg_codes(codes_act, y_act, spec.name, n_cat)
+                gv = _gpu.global_agg(y_act, spec.name)
+                vals = np.where(np.isnan(vals) | (cnt < max(ms, 1)), gv, vals)
+                entries.append(((feat, spec.name, None), pd.Series(vals, index=uniques), gv))
         return entries
 
     # binary / multiclass: mean (per class) and woe (binary) from binarized device passes
@@ -294,14 +295,27 @@ def kfold_oof_columns(est, units, y, fold_id, n_folds, cols) -> None:
         if est.target_type_ == "continuous":
             y_dev = _gpu.to_device_float(y)
             y_act = y_dev[active] if active is not None else y_dev
-            shift = float(y_act.mean()) if wants_shift and y_act.shape[0] else 0.0
-            raw = _gpu.oof_moment_tables(
-                comp, y_act - shift if shift != 0.0 else y_act, size, order
-            )
-            tab = tables_from_raw(n, None, None, n_folds, n_cat, *raw, shift=shift)
-            for j, meta in items:
-                E = _cells_for(meta.stat, tab, est, ms)
-                cols[j] = _gpu.scatter_active(_gpu.gather_cells(E, comp), active, n)
+            add_items = [(j, m) for j, m in items if m.stat not in _ORDER_STATS]
+            ord_items = [(j, m) for j, m in items if m.stat in _ORDER_STATS]
+            tab = None
+            if add_items:
+                shift = float(y_act.mean()) if wants_shift and y_act.shape[0] else 0.0
+                raw = _gpu.oof_moment_tables(
+                    comp, y_act - shift if shift != 0.0 else y_act, size, order
+                )
+                tab = tables_from_raw(n, None, None, n_folds, n_cat, *raw, shift=shift)
+                for j, meta in add_items:
+                    E = _cells_for(meta.stat, tab, est, ms)
+                    cols[j] = _gpu.scatter_active(_gpu.gather_cells(E, comp), active, n)
+            if ord_items:
+                if tab is None:  # counts tables only (fallback masks): one order-2 pass
+                    raw = _gpu.oof_moment_tables(comp, y_act, size, 2)
+                    tab = tables_from_raw(n, None, None, n_folds, n_cat, *raw)
+                for j, meta in ord_items:
+                    E = _order_oof_cells(
+                        est, meta.stat, tab, codes_act, y_act, fid_act, n_folds, n_cat, ms
+                    )
+                    cols[j] = _gpu.scatter_active(_gpu.gather_cells(E, comp), active, n)
         elif est.target_type_ == "binary":
             yb = _gpu.binarize_device(y, est.classes_[1])
             yb_act = yb[active] if active is not None else yb
@@ -318,6 +332,38 @@ def kfold_oof_columns(est, units, y, fold_id, n_folds, cols) -> None:
                 tab = tables_from_raw(n, None, None, n_folds, n_cat, *raw)
                 E = mean_cells(tab, est.smooth, est.handle_unknown)
                 cols[j] = _gpu.scatter_active(_gpu.gather_cells(E, comp), active, n)
+
+
+def _order_oof_cells(est, stat, tab, codes_act, y_act, fid_act, n_folds, n_cat, ms):
+    """Per-fold device group-by OOF for an order stat (median/min/max), finalized on the
+    (fold, key) cells.
+
+    Mirrors the host slow path: fold ``f``'s cells hold the statistic fitted on its complement
+    (train side); NaN / low-count cells fall back to the complement-global statistic; unseen
+    cells follow ``handle_unknown`` (``'error'`` only if the cell is actually gathered,
+    ``fc > 0``). Only the small per-code tables and one scalar per fold leave the device -- the
+    per-fold row data (the KI-020 bottleneck) never does.
+    """
+    hu = est.handle_unknown
+    E = np.empty(n_folds * n_cat, dtype=float)
+    for f in range(n_folds):
+        train = fid_act != int(f)
+        vals = _gpu.category_agg_codes(codes_act[train], y_act[train], stat, n_cat)
+        gv = _gpu.global_agg(y_act[train], stat)
+        sl = slice(f * n_cat, (f + 1) * n_cat)
+        cnt_f = tab.cc[sl]  # complement (train-side) counts per code
+        vals = np.where(np.isnan(vals) | (cnt_f < max(ms, 1)), gv, vals)
+        unseen = cnt_f <= 0.0
+        if unseen.any() and hu != "value":  # 'value' already took gv via the low-count mask
+            if hu == "error":
+                if (unseen & (tab.fc[sl] > 0.0)).any():
+                    raise ValueError(
+                        "Found unknown categories during out-of-fold encoding "
+                        "(handle_unknown='error')."
+                    )
+            vals = np.where(unseen, np.nan, vals)
+        E[sl] = vals
+    return E
 
 
 def _cells_for(stat, tab, est, ms):

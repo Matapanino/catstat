@@ -233,6 +233,47 @@ def code_moments(codes, y, n_cat, order: int = 2):
     return cp.asnumpy(cnt), cp.asnumpy(s1), cp.asnumpy(s2), cp.asnumpy(s3), cp.asnumpy(s4)
 
 
+def category_agg_codes(codes, y, stat: str, n_cat: int) -> np.ndarray:
+    """Per-code median/min/max on device -> host float64 array of length ``n_cat``.
+
+    Codes absent from ``codes`` stay NaN (the caller's fallback trigger). Used by the device
+    order-stat fit and the per-fold device OOF loop (only the small per-code table leaves the
+    GPU; the per-fold row data never does).
+    """
+    import cudf
+
+    gdf = cudf.DataFrame({"k": codes, "y": y})
+    g = gdf.groupby("k", sort=False)["y"]
+    if stat == "median":
+        res = g.median()
+    elif stat == "min":
+        res = g.min()
+    elif stat == "max":
+        res = g.max()
+    else:
+        raise ValueError(f"Unknown order stat {stat!r}.")
+    out = np.full(n_cat, np.nan, dtype=float)
+    rp = res.to_pandas()
+    out[rp.index.to_numpy()] = rp.to_numpy(dtype=float)
+    return out
+
+
+def global_agg(y, stat: str) -> float:
+    """Device-wide median/min/max of ``y`` -> host scalar (the order stats' global fallback)."""
+    import cupy as cp
+
+    y = cp.asarray(y, dtype="float64")
+    if y.size == 0:
+        return float("nan")
+    if stat == "median":
+        return float(cp.median(y))
+    if stat == "min":
+        return float(y.min())
+    if stat == "max":
+        return float(y.max())
+    raise ValueError(f"Unknown order stat {stat!r}.")
+
+
 def gather_cells(values, codes):
     """Device gather ``values[codes]`` (values H2D'd if host); ``codes < 0`` -> NaN."""
     import cupy as cp

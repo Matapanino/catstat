@@ -243,7 +243,7 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 > (2.6–12.4× vs CPU on T4; transform ×6.6–13.2), device order-stat OOF, shift-stable fit
 > reductions. `auto` **stays off** for host-origin data (fresh crossover: 1.09–1.19× at 1M–10M,
 > below the ≥1.25× flip bar; KI-020) — cuDF input routes to GPU categorically instead. T4 suite
-> 360 passed. **0.5.0 RELEASED to PyPI (2026-07-02)** — PR #22 (arcs) + #23 (release) merged, `v0.5.0` tag → Trusted Publishing green, GitHub Release created, clean-venv PyPI install verified. **2026-07-02 ergonomics arc: all four former candidates DONE** (sigmoid smoothing,
+> 360 passed. **0.5.0 RELEASED to PyPI (2026-07-02)** — PR #22 (arcs) + #23 (release) merged, `v0.5.0` tag → Trusted Publishing green, GitHub Release created, clean-venv PyPI install verified. **0.5.1 RELEASED to PyPI (2026-07-02)** — the ergonomics arc shipped (PR #25 + release PR #26; `v0.5.1` tag; the first Trusted-Publishing run hit a transient connect-timeout to upload.pypi.org and succeeded on rerun). **2026-07-02 ergonomics arc: all four former candidates DONE** (sigmoid smoothing,
 > laplace_alpha, max_classes/KI-016, device transform-LUT cache) — T4 suite 384 passed. **Next
 > candidates (no work started):** KI-010 sklearn `smooth="auto"` exact-parity check; docs/API
 > reference refresh for the 0.5.x features. **Ops nit:** Actions warn on Node 20

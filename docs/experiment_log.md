@@ -494,3 +494,11 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - Result: local gate green (384 tests); **T4 full suite 384 passed** (fresh session; the assignment
   quota from earlier in the day had reset).
 - Verdict: KEEP; no defaults changed (all new knobs off/None by default).
+
+## 2026-07-02 — 0.5.1 released to PyPI (ops, not an experiment)
+- Ergonomics arc (sigmoid smoothing / laplace_alpha / max_classes / device LUT cache) shipped as
+  **0.5.1** via PR #25 + release PR #26; `v0.5.1` tagged.
+- Ops note: the first Release run **failed with a transient ConnectTimeout to upload.pypi.org**
+  (OIDC audience fetch from the runner); `gh run rerun --failed` succeeded — worth remembering
+  before debugging Trusted Publishing config. JSON API showed 0.5.1 minutes before the pip simple
+  index did (propagation lag). GitHub Release created from the CHANGELOG section.

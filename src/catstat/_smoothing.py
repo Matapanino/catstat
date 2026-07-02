@@ -1,12 +1,18 @@
 """Smoothing for mean/probability statistics.
 
 Only mean/probability admit principled smoothing (see docs: the "smoothing honesty rule").
-This module implements the fixed m-estimate and the ``smooth='auto'`` empirical-Bayes estimate.
+This module implements the fixed m-estimate, the ``smooth='auto'`` empirical-Bayes estimate, and
+the ``smooth='sigmoid'`` blend (category_encoders parity).
 
 For ``smooth='auto'`` we use the documented empirical-Bayes form ``m_i = sigma_i^2 / tau^2`` with
 population (ddof=0) variances, blending ``lambda_i = n_i / (n_i + m_i)`` toward the global mean.
 The exact parity with scikit-learn's auto formula is a known follow-up (docs/known_issues KI-010);
 the leakage/determinism guarantees do not depend on the smoothing constant.
+
+``smooth='sigmoid'`` (or ``('sigmoid', k, f)``) reproduces category_encoders' ``TargetEncoder``:
+``w = 1/(1 + exp(-(n - k)/f))``, ``enc = w*mean + (1-w)*prior``, with a singleton category
+(``n == 1``) forced to the prior -- exactly their formula, including that override. The bare
+string uses their defaults ``k=20`` (min_samples_leaf), ``f=10.0`` (smoothing).
 """
 
 from __future__ import annotations
@@ -16,18 +22,51 @@ import pandas as pd
 
 from .backends import _cpu
 
+_SIGMOID_DEFAULTS = (20.0, 10.0)  # category_encoders: min_samples_leaf=20, smoothing=10
+
+
+def sigmoid_params(smooth):
+    """``(k, f)`` when ``smooth`` selects the sigmoid blend, else ``None``.
+
+    Accepts ``'sigmoid'`` (category_encoders defaults) or ``('sigmoid', k, f)`` with ``f > 0``.
+    Raises for a malformed sigmoid spec; returns ``None`` for every other ``smooth`` value.
+    """
+    if smooth == "sigmoid":
+        return _SIGMOID_DEFAULTS
+    if isinstance(smooth, tuple):
+        if len(smooth) != 3 or smooth[0] != "sigmoid":
+            raise ValueError(
+                f"smooth={smooth!r}: tuple form must be ('sigmoid', k, f), e.g. "
+                "('sigmoid', 20, 10.0)."
+            )
+        k, f = float(smooth[1]), float(smooth[2])
+        if not np.isfinite(k) or not np.isfinite(f) or f <= 0:
+            raise ValueError(f"smooth={smooth!r}: need finite k and f > 0.")
+        return k, f
+    return None
+
 
 def mean_from_stats(count, mean, sumsq, smooth, global_mean: float, tau2: float) -> pd.Series:
     """Smoothed mean encoding from per-category ``(count, mean, sumsq)`` plus global scalars.
 
-    The single source of the m-estimate / empirical-Bayes arithmetic, shared by the host path
-    (:func:`fit_mean_encoding`, category-indexed Series) and the device path (code-indexed
-    Series built from on-device reductions). ``tau2`` is the population variance of ``y`` (only
-    consulted for ``smooth='auto'``).
+    The single source of the m-estimate / empirical-Bayes / sigmoid arithmetic, shared by the
+    host path (:func:`fit_mean_encoding`, category-indexed Series) and the device path
+    (code-indexed Series built from on-device reductions). ``tau2`` is the population variance
+    of ``y`` (only consulted for ``smooth='auto'``).
     """
+    sig = sigmoid_params(smooth)
+    if sig is not None:
+        k, f = sig
+        w = 1.0 / (1.0 + np.exp(-(count - k) / f))
+        enc = w * mean + (1.0 - w) * global_mean
+        # category_encoders parity: a singleton category takes the prior outright
+        enc = enc.where(count > 1, global_mean)
+        return enc.astype(float)
     if isinstance(smooth, str):
         if smooth != "auto":
-            raise ValueError(f"smooth={smooth!r}: only 'auto' or a float >= 0 is allowed.")
+            raise ValueError(
+                f"smooth={smooth!r}: 'auto', 'sigmoid', ('sigmoid', k, f), or a float >= 0."
+            )
         var_pop = (sumsq / count - mean**2).clip(lower=0.0)
         if tau2 > 0:
             m = var_pop / tau2
@@ -67,7 +106,7 @@ def fit_mean_encoding(
         backend = _cpu
     yv = np.asarray(y, dtype=float)
     global_mean = float(np.mean(yv))
-    tau2 = float(np.var(yv)) if isinstance(smooth, str) else 0.0  # population variance
+    tau2 = float(np.var(yv)) if smooth == "auto" else 0.0  # population variance (EB only)
     if shift:
         stats = backend.category_reduce(keys, yv - global_mean)
         enc = mean_from_stats(stats["count"], stats["mean"], stats["sumsq"], smooth, 0.0, tau2)

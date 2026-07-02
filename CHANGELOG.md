@@ -3,6 +3,14 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`smooth="sigmoid"` / `("sigmoid", k, f)`** — the category_encoders `TargetEncoder` blend
+  `w = 1/(1 + exp(-(n - k)/f))` toward the prior (bare string = their defaults `k=20, f=10`;
+  singleton categories take the prior outright, matching their override). Applies to `mean` and
+  `woe`, cross-fitted per fold on the fast kernel; kfold-only (no loo/ordered analogue).
+
 ## [0.5.0] — 2026-07-02
 
 ### Added

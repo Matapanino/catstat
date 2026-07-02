@@ -366,15 +366,23 @@ def _mean_enc_cells(tab: _OOFTables, smooth, handle_unknown):
     ``_smoothing.fit_mean_encoding`` per fold), with the unknown handling already applied
     (``'value'`` cells are exactly the per-fold prior ``g_cell``). Consumed by the mean finalizer
     (un-shift + scatter) and the WOE finalizer (logit difference against ``g_cell``)."""
+    from ._smoothing import sigmoid_params
+
     cn = tab.cn
     g = tab.cs_fold / cn
     g_cell = _fold_cells(g, tab.n_cat)
     cc, cs, css = tab.cc, tab.cs, tab.css
     seen = cc > 0.0
     cc_safe = np.where(seen, cc, 1.0)
+    sig = sigmoid_params(smooth)
     with np.errstate(invalid="ignore", divide="ignore"):
         mean_c = cs / cc_safe
-        if isinstance(smooth, str):  # 'auto' empirical-Bayes, per fold
+        if sig is not None:  # category_encoders sigmoid blend, per fold
+            k, f = sig
+            w = 1.0 / (1.0 + np.exp(-(cc - k) / f))
+            E = w * mean_c + (1.0 - w) * g_cell
+            E = np.where(cc > 1.0, E, g_cell)  # ce parity: singleton complement -> the prior
+        elif isinstance(smooth, str):  # 'auto' empirical-Bayes, per fold
             tau2 = tab.css_fold / cn - g * g
             tau2_cell = _fold_cells(tau2, tab.n_cat)
             var_pop = np.clip(css / cc_safe - mean_c * mean_c, 0.0, None)

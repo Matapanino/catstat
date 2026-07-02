@@ -70,6 +70,11 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
   neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
   `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- ✅ **Ergonomics arc 1 (2026-07-02)**: `smooth="sigmoid"` / `("sigmoid", k, f)` — the
+  category_encoders blend (`w = σ((n−k)/f)`, singleton→prior override included) as a third
+  principled mean/probability smoothing next to fixed-m and `"auto"`; per-fold on the fast OOF
+  kernel (host + device share `sigmoid_params`); loo/ordered reject it. Leakage audit PASS
+  (reconstruction ≤1e-15). `test_sigmoid_smoothing.py`.
 - ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
   marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
   threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**

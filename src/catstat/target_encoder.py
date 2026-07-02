@@ -38,8 +38,14 @@ class TargetEncoder(_BaseStatEncoder):
     ``interactions`` adds one joint target-encoded column per group: e.g.
     ``interactions=[["a", "b"]]`` encodes the ``(a, b)`` pair as one category (named ``"a+b"``) on
     top of the independent ``cols``. It generalizes ``multi_feature_mode="combination"`` (which
-    encodes a single joint column over *all* cols and nothing independent). Joint/tuple keys are
-    CPU-only on GPU backends (KI-018).
+    encodes a single joint column over *all* cols and nothing independent). Joint keys run on both
+    backends via int64 mixed-radix codes.
+
+    ``smooth`` selects the mean/probability smoothing: a float ``m`` (m-estimate), ``"auto"``
+    (empirical-Bayes, the default), or ``"sigmoid"`` / ``("sigmoid", k, f)`` -- the
+    category_encoders blend ``w = 1/(1 + exp(-(n - k)/f))`` toward the prior (bare string uses
+    their defaults ``k=20, f=10``; singletons take the prior outright, matching their override).
+    ``"sigmoid"`` is kfold-only (no loo/ordered analogue).
 
     Parameters mirror ``docs/proposals/target-encoder-library-design.md`` §3.
     """

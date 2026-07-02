@@ -34,7 +34,7 @@ from ._cross_fit import (
 )
 from ._feature_names import build_columns
 from ._numeric import apply_numeric_col, fit_numeric_plan, validate_binning
-from ._smoothing import fit_mean_encoding, woe_from_prob
+from ._smoothing import fit_mean_encoding, sigmoid_params, woe_from_prob
 from ._validation import (
     _is_numeric_like,
     check_handle,
@@ -198,6 +198,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 raise ValueError(
                     f"scheme={scheme!r} cross-fits the mean only (count/frequency are allowed "
                     f"too); got target-dependent stats {bad}. Use scheme='kfold' for those."
+                )
+            if sigmoid_params(self.smooth) is not None:
+                raise ValueError(
+                    f"scheme={scheme!r} supports fixed-m or 'auto' smoothing only; "
+                    "smooth='sigmoid' has no leave-one-out/ordered analogue -- use "
+                    "scheme='kfold'."
                 )
 
         self._columns_meta = build_columns(

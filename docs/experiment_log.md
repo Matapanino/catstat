@@ -441,3 +441,17 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   multiclass/combination/interactions/y-containers/fences/determinism/device-fit→pandas-transform)
   at allclose rtol=1e-5.
 - Verdict: KEEP. Perf numbers deferred to the B5 three-lane crossover.
+
+## 2026-07-02 — B3/B4: device transform + cuDF output + order-stat OOF (validated on T4)
+- Change: `output="cudf"` first-class (device in → cuDF out by default; host in + cudf out = one
+  explicit H2D; sklearn `set_output` wins and we build the host container ourselves);
+  `transform(cuDF)` on any fitted encoder via device hash-join codes (`codes_from_uniques` /
+  `codes_from_int_index` — join-based, robust across cudf versions) + device gather + on-device
+  unknown/missing policy. B4: median/min/max device fit + per-fold OOF on resident codes/y/fids
+  (only per-code tables + one scalar per fold leave the GPU; fallback masks from the same
+  (fold,key) count tables as the additive kernel).
+- Friction: `cudf.BaseIndex` removed in cudf 26.x → duck-type by module name in `wrap_cudf`.
+- Result: **T4 full suite 358 passed, 2 skipped** — output matrix {auto,numpy,pandas,cudf} ×
+  {pandas,cuDF} in, set_output override, transform-parity (host- and device-fitted, unknown/
+  missing probes, combination), order-stat parity incl. hybrid mean+median and tiny complements.
+- Verdict: KEEP. Perf → B5 three-lane crossover (running).

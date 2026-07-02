@@ -55,6 +55,59 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 - ✅ **Phase 3a**: `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or
   dict form; CPU-only, cross-fitted, continuous-only, global fallback). Quantiles/IQR via custom
   callables; `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
+- ✅ **Stats arc 1 (2026-07-02)**: `kurt` (built-in, excess kurtosis) + `skew`/`kurt` reworked to
+  **power-sum moments** (`category_moments` on both backends; global-mean shift for numerical
+  stability) — pandas-matching (adjusted G1 / bias-corrected G2, `n<3`/`n<4` → global fallback,
+  constant category → 0.0) and now **GPU-supported** (skew no longer forces the CPU backend).
+  `test_shape_stats.py`.
+- ✅ **Stats arc 2 (2026-07-02)**: skew/kurt joined the **single-pass additive OOF kernel**
+  (`_ADDITIVE_STATS`): the shared `(fold, key)` pass upgrades to order-4 shifted power sums when a
+  shape stat is requested (`finalize_shape_oof`; per-stat min-n fallback via `_STAT_MIN_N`), so
+  skew/kurt no longer force the per-fold slow loop. fast==slow at allclose across the fallback
+  matrix incl. a 1e9-offset case; leakage audit re-passed. `test_additive_fast_path.py`.
+- ✅ **B0 — (fold × cat) table OOF kernel (2026-07-02)**: OOF finalizers now build small
+  `(n_folds × n_cat)` value tables from an injectable `moment_tables` kernel and scatter with one
+  gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
+  neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
+  `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
+  marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
+  threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**
+  (order-4 profile 8.4–10.8×, median 10.1–12.4×, transform ×6.6–13.2), routed to GPU
+  categorically. Parity exposed + same-day-fixed an unshifted-fit-path cancellation bug at
+  |mean|≫sd (shift-stable fit reductions; T4 suite 360 passed post-fix).
+  `docs/verdicts/2026-07-02-gpu-device-path-verdict.md` — **PR-D / GPU device arc complete.**
+- ✅ **B3 — device transform + cuDF output (2026-07-02, validated on T4)**: `output="cudf"` is a
+  first-class container (device input returns cuDF by default; host input + `output='cudf'` does
+  one explicit H2D); sklearn `set_output('pandas'/'polars')` wins over the `output` param;
+  `transform` accepts cuDF input on any fitted encoder (device hash-join codes against the
+  fit-time host index + device gather + on-device unknown/missing policy).
+- ✅ **B4 — device order-stat OOF (2026-07-02, validated on T4)**: median/min/max fit + per-fold
+  OOF on device-resident codes/y/fold-ids — only per-code tables and one scalar per fold leave
+  the GPU, removing the per-fold row transfers that dominated KI-020's non-additive numbers.
+  **T4: full suite 358 passed** incl. the whole device matrix.
+- ✅ **B2 — cuDF input, device-resident (2026-07-02, validated on Colab T4)**: `fit`/`fit_transform`
+  accept a cuDF DataFrame (+ cupy/cudf/numpy y) and keep it on device end-to-end: cudf factorize
+  with a MISSING-level remap mirroring `normalize_keys`, device mixed-radix joint codes densified
+  on device (host `_JointKeyPlan` -> pandas-input transform reuses the host machinery), on-device
+  moment reductions through the shared host smoothing/finalizer math, device OOF + gather, one
+  D2H for the final matrix (`output='numpy'` for now). Device input routes to GPU regardless of
+  `_AUTO_GPU_ENABLED` (categorical signal); `backend='cpu'` + cuDF raises. Fences: numeric /
+  loo-ordered / median-min-max (B4) / custom / non-numpy output. **T4: full suite 351 passed
+  incl. 24 gpu tests** (`tests/test_device_input.py`, `scripts/colab_gpu_tests.py`).
+- ✅ **B1 — device additive OOF kernel (2026-07-02, validated on Colab T4 via the B2 suite)**:
+  `_gpu.oof_moment_tables` (`cupy.bincount`, order 2/4; one H2D of comp+y per unit, small tables
+  back) injected through the B0 seam — under `backend="gpu"` the additive OOF path (mean/var/std/
+  skew/kurt/woe) now runs its heavy pass on device instead of never touching the GPU. Parity test
+  gpu-marked (`test_oof_moment_tables_gpu_matches_numpy`); perf claims deferred to the B5
+  crossover verdict (KI-020).
+- ✅ **Stats arc 3 (2026-07-02)**: `stats=["woe"]` — weight of evidence, **binary-only**
+  (`StatSpec.binary_only`), derived as `logit(smoothed p) − logit(prior)` from the existing
+  mean/probability smoothing (honesty-rule compliant; no new smoothing invented). GPU-eligible and
+  on the additive fast kernel; unknown/missing-unseen fallback is exactly **0.0**. Documented
+  edge: a *pure* category is ±inf under `smooth=0` **and** `smooth='auto'` (EB shrinks by
+  within-category variance = 0); fixed `m>0` guarantees finite. Leakage audit exact; sklearn-compat
+  spot checks pass. `test_woe.py`.
 - ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
   modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
 - ✅ **Phase 3c**: `output="polars"` (returns a polars DataFrame; lazy import, optional dep).
@@ -169,8 +222,13 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 > **`min_bin_size`** (merge sparse computed bins from X, #14). All reuse the shared `_numeric.py` path
 > with the cross-fit untouched; each shipped `/sklearn-compat` + `/leakage-audit` green. `v0.4.0`
 > tagged + pushed → Trusted Publishing built + uploaded the wheel/sdist (run succeeded, live on PyPI),
-> GitHub Release created. **Next candidates (no work started):** `smoothing="sigmoid"`
-> (category_encoders parity), optional Laplace add-α for frequency (default off), multiclass
-> `max_classes` (KI-016); or **PR-D** GPU on-device — niche, `auto` stays off (the 2026-06-27
-> crossover keeps GPU at ~parity only ≥5M; KI-020). **Ops nit:** Actions warn on Node 20 deprecation
-> (bump `actions/checkout@v4` etc.).
+> GitHub Release created. **2026-07-02 (`feat/shape-stats-moments`): stats arc + PR-D both DONE** —
+> `kurt` + moments-based `skew` (GPU-supported, fast-kernel), `woe` (binary, smoothing-derived),
+> (fold×cat) table OOF kernel, device OOF kernel, **cuDF input/output device-resident end-to-end**
+> (2.6–12.4× vs CPU on T4; transform ×6.6–13.2), device order-stat OOF, shift-stable fit
+> reductions. `auto` **stays off** for host-origin data (fresh crossover: 1.09–1.19× at 1M–10M,
+> below the ≥1.25× flip bar; KI-020) — cuDF input routes to GPU categorically instead. T4 suite
+> 360 passed. **Next candidates (no work started):** `smoothing="sigmoid"` (category_encoders
+> parity), optional Laplace add-α for frequency (default off), multiclass `max_classes` (KI-016),
+> device-uniques cache for repeated `transform(cuDF)`. **Ops nit:** Actions warn on Node 20
+> deprecation (bump `actions/checkout@v4` etc.).

@@ -18,11 +18,13 @@ from sklearn.utils.validation import check_is_fitted
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import (
     build_joint_keyplan,
-    complement_moments,
+    complement_tables,
     decode_joint,
     factorize_active,
     finalize_dispersion_oof,
     finalize_mean_oof,
+    finalize_shape_oof,
+    finalize_woe_oof,
     gather,
     joint_codes,
     loo_encode,
@@ -32,7 +34,7 @@ from ._cross_fit import (
 )
 from ._feature_names import build_columns
 from ._numeric import apply_numeric_col, fit_numeric_plan, validate_binning
-from ._smoothing import fit_mean_encoding
+from ._smoothing import fit_mean_encoding, woe_from_prob
 from ._validation import (
     _is_numeric_like,
     check_handle,
@@ -42,11 +44,13 @@ from ._validation import (
     select_cols,
 )
 from .backends import _cpu
-from .backends._dispatch import backend_module, select_backend
+from .backends._dispatch import backend_module, is_device_frame, select_backend
 
-_VALID_OUTPUT = ("auto", "numpy", "pandas", "polars")
-_DEFERRED_OUTPUT = ("cudf", "cupy")
-_ADDITIVE_STATS = frozenset({"mean", "var", "std"})  # stats the single-pass kernel can finalize
+_VALID_OUTPUT = ("auto", "numpy", "pandas", "polars", "cudf")
+_DEFERRED_OUTPUT = ("cupy",)
+# stats the single-pass kernel can finalize from (fold, key) power sums; skew/kurt need order-4
+_ADDITIVE_STATS = frozenset({"mean", "var", "std", "skew", "kurt", "woe"})
+_SHAPE_STATS = frozenset({"skew", "kurt"})
 
 
 @dataclass(frozen=True)
@@ -112,7 +116,18 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             raise ValueError(f"output={self.output!r} must be one of {_VALID_OUTPUT}.")
         numeric_mode = self._validate_numeric_params()
 
-        Xdf, was_df, all_cols = prepare_X(X)
+        # cuDF input: keep the frame device-resident -- key extraction and every heavy reduction
+        # run on device (catstat._device); fold assignment, smoothing math, and all fitted
+        # attributes stay the same host code the CPU path uses.
+        device = is_device_frame(X)
+        if device:
+            Xdf, was_df, all_cols = X, True, list(X.columns)
+        else:
+            if self.output == "cudf":  # host input + cuDF output: explicit H2D, RAPIDS required
+                from .backends import _gpu
+
+                _gpu.ensure_available()
+            Xdf, was_df, all_cols = prepare_X(X)
         self.n_features_in_ = Xdf.shape[1]
         if was_df:
             self.feature_names_in_ = np.asarray(all_cols, dtype=object)
@@ -128,16 +143,26 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._unit_cols = dict(self._units)
         self._fit_numeric(Xdf, numeric_mode)
         # Per-combination-unit int64 joint-code plan, learned once from full X (X-only, so
-        # leakage-safe) and reused at fit / per-fold / transform via _unit_keys.
-        self._unit_keyplans = self._build_joint_keyplans(Xdf)
+        # leakage-safe) and reused at fit / per-fold / transform via _unit_keys. On the device
+        # path the plans are built from the on-device factorization instead (factorize_units).
+        self._unit_keyplans = {} if device else self._build_joint_keyplans(Xdf)
         self._specs = self._resolve_stat_specs()
         self.stats_ = [s.name for s in self._specs]
+        if device:
+            from . import _device
+
+            _device.check_device_fences(self, self._specs)
 
         supervised = self._is_supervised()
         if supervised:
             if y is None:
                 raise ValueError(f"{type(self).__name__} requires y to be supplied to fit().")
-            y_arr = np.asarray(y)
+            if device:
+                from .backends import _gpu
+
+                y_arr = _gpu.to_host_1d(y)  # target inference / classes / folds need host y
+            else:
+                y_arr = np.asarray(y)
             if len(y_arr) != Xdf.shape[0]:
                 raise ValueError("X and y have inconsistent lengths.")
             self.target_type_ = infer_target_type(y_arr, self.target_type)
@@ -155,6 +180,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     f"stat={spec.name!r} requires a continuous target; got "
                     f"target_type={self.target_type_!r}. Dispersion/order statistics on "
                     "classification targets are not supported."
+                )
+            # getattr: fitted estimators pickled before the field existed lack it on their specs
+            if getattr(spec, "binary_only", False) and self.target_type_ != "binary":
+                raise ValueError(
+                    f"stat={spec.name!r} requires a binary target; got "
+                    f"target_type={self.target_type_!r}. WOE is undefined for "
+                    "regression/multiclass targets."
                 )
 
         scheme = getattr(self, "scheme", "kfold")
@@ -175,16 +207,23 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
         all_gpu = all(s.gpu_supported for s in self._specs)
         self._backend_mod, self.backend_ = select_backend(
-            self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu
+            self.backend, Xdf.shape[0], len(self._cat_cols), all_gpu, device_input=device
         )
         # Combination/interaction units now key on int64 mixed-radix joint codes (host-built and
-        # GPU-groupable), so the device path handles them; only CPU-only stats (skew/custom, which
-        # have no GPU primitive) force host -> `not all_gpu`.
+        # GPU-groupable), so the device path handles them; only CPU-only stats (custom callables,
+        # which have no GPU primitive) force host -> `not all_gpu`. (Device input with a CPU-only
+        # stat was already rejected by the fences above.)
         host_only = not all_gpu
-        if self.backend_ == "gpu" and host_only:
+        if self.backend_ == "gpu" and host_only and not device:
             self._backend_mod, self.backend_ = _cpu, _cpu.NAME
 
-        self._fit_tables = self._fit_all(Xdf, y_arr)
+        if device:
+            from . import _device
+
+            self._device_units = _device.factorize_units(self, Xdf)
+            self._fit_tables = _device.fit_all_device(self, self._device_units, y)
+        else:
+            self._fit_tables = self._fit_all(Xdf, y_arr)
 
         # public fitted attributes derived from the full-data tables
         self.categories_ = {}
@@ -354,14 +393,23 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         entries.append(((feat, "mean", None), s, fb))
                     elif self.target_type_ == "binary":
                         yb = (y_sel == self.classes_[1]).astype(float)
-                        s, fb = fit_mean_encoding(keys, yb, self.smooth, bk)
+                        s, fb = fit_mean_encoding(keys, yb, self.smooth, bk, shift=False)
                         entries.append(((feat, "mean", None), s, fb))
                     else:  # multiclass: one-vs-rest per global class
                         for c in self.classes_:
                             yc = (y_sel == c).astype(float)
-                            s, fb = fit_mean_encoding(keys, yc, self.smooth, bk)
+                            s, fb = fit_mean_encoding(keys, yc, self.smooth, bk, shift=False)
                             entries.append(((feat, "mean", c), s, fb))
-                else:  # var/std/median/min/max/skew or custom (continuous-only, target-dependent)
+                elif spec.name == "woe":  # binary-only (gated at fit); prior = fold/global mean
+                    yb = (y_arr[sel] == self.classes_[1]).astype(float)
+                    s, prior = fit_mean_encoding(
+                        keys, yb, self.smooth, self._backend_mod, shift=False
+                    )
+                    woe = pd.Series(
+                        woe_from_prob(s.to_numpy(dtype=float), prior), index=s.index
+                    )
+                    entries.append(((feat, "woe", None), woe, 0.0))
+                else:  # var/std/median/min/max/skew/kurt or custom (continuous-only)
                     min_samples = getattr(self, "min_samples_category", 1)
                     y_sel_f = y_arr[sel].astype(float)
                     if spec.func is not None:
@@ -487,6 +535,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
     def __getstate__(self):
         state = dict(super().__getstate__())
         state.pop("_backend_mod", None)
+        state.pop("_device_units", None)  # per-unit device code cache: not picklable, rebuildable
         return state
 
     def __setstate__(self, state):
@@ -496,11 +545,18 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
     def transform(self, X):
         check_is_fitted(self, "_fit_tables")
+        if is_device_frame(X):
+            from . import _device
+
+            cols = _device.transform_device_columns(self, X)
+            return self._wrap_output_device(cols, X)
         Xdf, was_df, _ = prepare_X(X)
         arr = self._transform_array(Xdf, self._fit_tables)
         return self._wrap_output(arr, was_df, Xdf)
 
     def fit_transform(self, X, y=None, **fit_params):
+        if is_device_frame(X):
+            return self._fit_transform_device(X, y)
         self.fit(X, y)
         Xdf, was_df, _ = prepare_X(X)
         full = self._transform_array(Xdf, self._fit_tables)
@@ -517,14 +573,72 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     full[:, j] = oof[:, j]
         return self._wrap_output(full, was_df, Xdf)
 
+    def _fit_transform_device(self, X, y):
+        """fit + leakage-safe training-set encode with X device-resident (cuDF).
+
+        The full-data gather and the OOF kernel both run on device against the fit-time codes;
+        the finalized matrix comes to host once (``output='numpy'``, enforced by the fences).
+        """
+        from . import _device
+        from .backends import _gpu
+
+        self.fit(X, y)
+        units = self._device_units
+        cols = _device.transform_train_columns(self, units, self._fit_tables)
+        if self._is_supervised() and any(m.target_dependent for m in self._columns_meta):
+            splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
+            y_host = _gpu.to_host_1d(y)
+            folds = make_folds(X.shape[0], y_host, splitter)
+            fold_id = self._partition_fold_id(folds, X.shape[0])
+            if fold_id is None:
+                raise NotImplementedError(
+                    "cuDF input requires a partitioning CV (KFold/StratifiedKFold-like); "
+                    "arbitrary overlapping splits are host-only -- pass X.to_pandas()."
+                )
+            _device.kfold_oof_columns(self, units, y, fold_id, len(folds), cols)
+        del self._device_units  # free the device code cache; transform never needs it
+        return self._wrap_output_device(cols, X)
+
+    def _sklearn_output_request(self):
+        """The container sklearn's ``set_output`` asks for ('pandas'/'polars'), or None.
+
+        When set, sklearn semantics win over catstat's ``output`` param and we build the host
+        container ourselves -- sklearn's own wrapper cannot wrap a cuDF frame, and re-wrapping a
+        pandas one is a no-op."""
+        try:
+            from sklearn.utils._set_output import _get_output_config
+
+            cfg = _get_output_config("transform", self)["dense"]
+        except Exception:  # pragma: no cover - very old sklearn without set_output config
+            return None
+        return None if cfg == "default" else cfg
+
+    def _wrap_output_device(self, cols, Xg):
+        """Wrap device result columns per ``output`` (device in -> cuDF out by default)."""
+        from .backends import _gpu
+
+        req = self._sklearn_output_request()
+        out = self.output if req is None else req
+        if out in ("auto", "cudf"):
+            return _gpu.wrap_cudf(cols, self.feature_names_out_, Xg.index)
+        arr = _gpu.stack_to_host(cols)  # numpy / pandas / polars: one D2H, then host wrapping
+        if out == "pandas":
+            return pd.DataFrame(
+                arr, columns=self.feature_names_out_, index=Xg.index.to_pandas()
+            )
+        if out == "polars":
+            return self._wrap_output(arr, False, None)
+        return arr
+
     def _kfold_oof(self, Xdf, y_arr, shape):
         splitter = resolve_cv(self.cv, self.target_type_, self.shuffle, self.random_state)
         folds = make_folds(Xdf.shape[0], y_arr, splitter)
-        # Fast path: additive stats (mean/var/std) are reconstructed from one composite (fold, key)
-        # aggregation via complement subtraction instead of a per-fold group-by loop -- exactly
-        # equivalent (allclose; leakage-audited). Hybrid: when both additive and non-additive
-        # (median/min/max/skew/custom) stats are requested, the additive columns take the fast
-        # kernel and only the non-additive ones fall to the per-fold loop. Needs a partitioning CV.
+        # Fast path: additive stats (mean/var/std/skew/kurt) are reconstructed from one composite
+        # (fold, key) power-sum aggregation via complement subtraction instead of a per-fold
+        # group-by loop -- exactly equivalent (allclose; leakage-audited). Hybrid: when both
+        # additive and non-additive (median/min/max/custom) stats are requested, the additive
+        # columns take the fast kernel and only the non-additive ones fall to the per-fold loop.
+        # Needs a partitioning CV.
         add_cols = [
             j
             for j, m in enumerate(self._columns_meta)
@@ -564,31 +678,69 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         return fold_id
 
     def _kfold_oof_additive_fast(self, Xdf, y_arr, fold_id, n_folds, oof, col_indices):
-        """Fill the additive (mean/var/std) OOF columns in ``col_indices`` via the single-pass
-        kernel. Per unit the keys are factorized once; for a continuous target the complement
-        moments are computed once and shared across that unit's mean/var/std columns (var/std are
-        continuous-only, so classification only ever finalizes the mean, one pass per class)."""
+        """Fill the additive (mean/var/std/skew/kurt) OOF columns in ``col_indices`` via the
+        single-pass kernel. Per unit the keys are factorized once; for a continuous target the
+        complement moments are computed once and shared across that unit's columns. A unit with a
+        shape stat upgrades the shared pass to order-4 sums shifted by the global mean (exact:
+        shift-invariant stats; the mean finalizer un-shifts) -- units without shape stats keep the
+        order-2 zero-shift pass bit-identical. Dispersion/shape are continuous-only, so
+        classification only ever finalizes the mean, one pass per class."""
         by_unit: dict = {}
         for j in col_indices:
             meta = self._columns_meta[j]
             by_unit.setdefault(meta.feature, []).append((j, meta))
         ms = getattr(self, "min_samples_category", 1)
+        # the per-(fold,key) sums run on the selected backend (numpy bincount / cupy bincount on
+        # device); finalization and the row gather stay host either way (tables are small)
+        kernel = self._backend_mod.oof_moment_tables
         for feat, items in by_unit.items():
             keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[feat])
             n, a, codes, n_cat = factorize_active(keys, missing_mask, self.handle_missing)
             fid_a = fold_id[a]
             if self.target_type_ == "continuous":
-                mom = complement_moments(n, a, codes, n_cat, fid_a, y_arr.astype(float)[a], n_folds)
+                y_act = y_arr.astype(float)[a]
+                shape_req = any(meta.stat in _SHAPE_STATS for _j, meta in items)
+                order = 4 if shape_req else 2
+                # always shift continuous targets: exact (shift-invariant stats; the mean
+                # finalizer un-shifts) and keeps the EB weights / dispersion reconstruction
+                # stable when |mean| >> sd -- on both backends identically
+                shift = float(y_act.mean()) if y_act.size else 0.0
+                tab = complement_tables(
+                    n,
+                    a,
+                    codes,
+                    n_cat,
+                    fid_a,
+                    y_act,
+                    n_folds,
+                    order=order,
+                    shift=shift,
+                    moment_tables=kernel,
+                )
                 for j, meta in items:
                     if meta.stat == "mean":
-                        oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                        oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
+                    elif meta.stat in _SHAPE_STATS:
+                        oof[:, j] = finalize_shape_oof(tab, meta.stat, ms, self.handle_unknown)
                     else:
-                        oof[:, j] = finalize_dispersion_oof(mom, meta.stat, ms, self.handle_unknown)
-            else:  # binary/multiclass: mean only, one moment pass per class (factorize shared)
+                        oof[:, j] = finalize_dispersion_oof(tab, meta.stat, ms, self.handle_unknown)
+            elif self.target_type_ == "binary":  # mean/woe share one binarized table pass
+                yv = self._mean_y_vector(y_arr, items[0][1])[a]
+                tab = complement_tables(
+                    n, a, codes, n_cat, fid_a, yv, n_folds, moment_tables=kernel
+                )
+                for j, meta in items:
+                    if meta.stat == "woe":
+                        oof[:, j] = finalize_woe_oof(tab, self.smooth, self.handle_unknown)
+                    else:
+                        oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
+            else:  # multiclass: mean only, one table pass per class (factorize shared)
                 for j, meta in items:
                     yv = self._mean_y_vector(y_arr, meta)[a]
-                    mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)
-                    oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                    tab = complement_tables(
+                        n, a, codes, n_cat, fid_a, yv, n_folds, moment_tables=kernel
+                    )
+                    oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
         return oof
 
     def _slow_oof_into(self, Xdf, y_arr, folds, oof, cols):
@@ -646,6 +798,10 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if self.output == "pandas":
             idx = Xdf.index if was_df else None
             return pd.DataFrame(arr, columns=self.feature_names_out_, index=idx)
+        if self.output == "cudf":  # host-input path: one explicit H2D (RAPIDS checked at fit)
+            from .backends import _gpu
+
+            return _gpu.wrap_cudf(arr, self.feature_names_out_, Xdf.index if was_df else None)
         if self.output == "polars":
             try:
                 import polars as pl

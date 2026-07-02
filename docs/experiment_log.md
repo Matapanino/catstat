@@ -394,3 +394,79 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   Release `v0.4.0` created from the `[0.4.0]` notes (first GH release since 0.1.1).
 - Carryover: Actions still warn on Node 20 deprecation (bump `actions/checkout@v4` etc.). Next
   feature candidates: `smoothing="sigmoid"`, Laplace add-α for frequency, multiclass `max_classes`.
+
+## 2026-07-02 — Stats arc: kurt + moments-based skew (A1a/A1b), WOE (A2)
+- Hypothesis: skew/kurt reconstructed from shifted power sums S1..S4 match pandas' bias-corrected
+  G1/G2 at allclose, become GPU-supported (plain sums, cuDF-safe) and additive (fast OOF kernel);
+  WOE derived as `logit(smoothed p) − logit(prior)` inherits the principled mean smoothing.
+- Change: `category_moments` (both backends) + `g1_g2_from_power_sums`; `_OOFMoments` → order-4 +
+  global-mean shift; `finalize_shape_oof` + `_STAT_MIN_N`; `StatSpec.binary_only` + `woe` via
+  `_mean_enc_cells`/`finalize_woe_oof`. Branch `feat/shape-stats-moments`.
+- Result: green gate PASS (327 tests); pandas parity incl. y=1e9±1 offsets; fast==slow allclose
+  across the fallback matrix; leakage audits PASS (skew ≤7e-14, kurt ≤2e-12 rel reconstruction;
+  woe exact 0.0; noise traps ≈0); sklearn-compat PASS (1.9.0).
+- **Null/edge finding:** `smooth="auto"` (EB, m_i = σ²_i/τ²) applies **no shrinkage to pure
+  categories** → WOE is ±inf under auto as well as smooth=0; only fixed m>0 guarantees finite.
+  Documented (docstring/CHANGELOG/test-locked), not "fixed" — the auto formula is a protected
+  default.
+- Verdict: KEEP (feature additions; no defaults changed).
+
+## 2026-07-02 — B0: (fold × cat) table OOF kernel (PR-D groundwork)
+- Hypothesis: every OOF encoding is a function of (fold, key), so finalizing on small (F·C)
+  tables + one gather is value-identical and creates the backend seam (`moment_tables`) for the
+  B1 device kernel.
+- Change: `complement_tables`/`np_moment_tables`/`_mean_enc_cells`/`_apply_unknown_cells`/
+  `_scatter_cells` replace the per-row kernel; `kfold_mean_oof_fast` deleted (no callers —
+  the "back-compat" note was stale).
+- Result: old(205b0c9)-vs-new interleaved in-process (n=200k, k=10k, 7 reps): ×1.02–1.21
+  (mean-only ×1.08, +woe ×1.21; spreads overlap for the small wins → "no regression", not a CPU
+  perf claim). Value parity max|Δ| ≤ 1.24e-14 (woe exact). Leakage audit re-PASS. Standard
+  harness: no regressions vs baseline. `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- Verdict: KEEP; baseline unchanged. Next: B1 `oof_moment_tables` on device (cupy.bincount).
+
+## 2026-07-02 — B1/B2: device OOF kernel + cuDF input (validated on Colab T4)
+- Change: `_gpu.oof_moment_tables` (cupy.bincount, order 2/4) injected through the B0 seam (B1);
+  `catstat._device` orchestration for cuDF input — device factorize/joint-codes/moment-reduce/OOF/
+  gather, shared host smoothing+cell math, `is_device_frame` + `select_backend(device_input=)`
+  routing (B2). Branch `feat/shape-stats-moments`.
+- Colab friction (all fixed in `scripts/colab_gpu_tests.py`): (1) Colab ships a dist-packages
+  *regular* `tests` package that shadows the repo's namespace `tests/` → touch
+  `tests/__init__.py` on the VM; (2) blind `pip install cudf-cu12` can outrun the driver — prefer
+  the image's preinstalled RAPIDS (cu12 26.2.1 works); (3) **stripping the subprocess env loses
+  `LD_LIBRARY_PATH` → CUDA binds a stub libcuda → `cudaErrorInsufficientDriver`** even though the
+  GPU is fine — inherit `os.environ`; (4) a lost session (404) makes `colab exec` hang → always
+  run under an external watchdog.
+- Result: **T4 full suite 351 passed, 1 skipped** incl. all 24 gpu-marked tests: B1 kernel parity,
+  skew/kurt/woe GPU parity, and the whole device-input matrix (continuous/missing/binary+woe/
+  multiclass/combination/interactions/y-containers/fences/determinism/device-fit→pandas-transform)
+  at allclose rtol=1e-5.
+- Verdict: KEEP. Perf numbers deferred to the B5 three-lane crossover.
+
+## 2026-07-02 — B3/B4: device transform + cuDF output + order-stat OOF (validated on T4)
+- Change: `output="cudf"` first-class (device in → cuDF out by default; host in + cudf out = one
+  explicit H2D; sklearn `set_output` wins and we build the host container ourselves);
+  `transform(cuDF)` on any fitted encoder via device hash-join codes (`codes_from_uniques` /
+  `codes_from_int_index` — join-based, robust across cudf versions) + device gather + on-device
+  unknown/missing policy. B4: median/min/max device fit + per-fold OOF on resident codes/y/fids
+  (only per-code tables + one scalar per fold leave the GPU; fallback masks from the same
+  (fold,key) count tables as the additive kernel).
+- Friction: `cudf.BaseIndex` removed in cudf 26.x → duck-type by module name in `wrap_cudf`.
+- Result: **T4 full suite 358 passed, 2 skipped** — output matrix {auto,numpy,pandas,cudf} ×
+  {pandas,cuDF} in, set_output override, transform-parity (host- and device-fitted, unknown/
+  missing probes, combination), order-stat parity incl. hybrid mean+median and tiny complements.
+- Verdict: KEEP. Perf → B5 three-lane crossover (running).
+
+## 2026-07-02 — B5: fresh T4 three-lane crossover (PR-D verdict)
+- Measurement: parity (17 cases) + crossover with lanes {cpu, gpu-host-origin, gpu-device-resident}
+  × profiles {mean, mean+var+skew+kurt} at n=10k…10M (reps 5 at ≥1M), + median lane + transform-only.
+  RMM pool on; conversions outside the timed region; device lane cuDF in/out (no D2H timed).
+- Result: host-origin unchanged vs history (0.23×@10k → 1.09–1.19×@1M–10M; **flip criterion not
+  met → `_AUTO_GPU_ENABLED` stays False**, `_GPU_CELL_THRESHOLD` untouched). Device-resident:
+  **2.56×@100k, 5.84×@1M, 6.37×@10M (mean); 8.4–10.8× (order-4 profile); 10.1–12.4× (median);
+  transform ×6.6–13.2** — the PR-D deliverable; routes to GPU categorically for cuDF input.
+- Parity found one real bug: `shape_offset_1e9` transform MISMATCH (max|Δ|=2049) — the *fit* path's
+  unshifted reductions (EB var_pop, cuDF one-pass var) cancel differently per backend at
+  |mean|≫sd. Fixed by shift-stable fit reductions (continuous targets only; binarized exempt to
+  keep WOE's exact ±inf); dedicated offset parity test added; **T4 suite 360 passed** post-fix.
+  Parity-table regeneration deferred (Colab session-assignment quota); crossover unaffected.
+- Verdict: KEEP auto off; device-resident path shipped. `2026-07-02-gpu-device-path-verdict.md`.

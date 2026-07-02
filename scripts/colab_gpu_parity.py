@@ -32,8 +32,23 @@ def _sh(cmd):
 def setup():
     WORK.mkdir(parents=True, exist_ok=True)
     _sh(["tar", "xzf", "/content/catstat.tar.gz", "-C", str(WORK)])
-    _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
+    # prefer the image's preinstalled RAPIDS (driver-compatible); pip only when absent
+    probe = subprocess.run(
+        [sys.executable, "-c", "import cudf, cupy; cupy.zeros(1).sum()"], capture_output=True
+    )
+    if probe.returncode != 0:
+        _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
     sys.path.insert(0, str(WORK / "src"))
+    try:  # RMM pool: stabilizes the 5M/10M timings (no per-alloc cudaMalloc churn)
+        import cupy
+        import rmm
+        from rmm.allocators.cupy import rmm_cupy_allocator
+
+        rmm.reinitialize(pool_allocator=True, initial_pool_size=6 * 1024**3)
+        cupy.cuda.set_allocator(rmm_cupy_allocator)
+        print("rmm pool: on", flush=True)
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        print("rmm pool init skipped:", exc, flush=True)
 
 
 def _med(fn, reps=3):
@@ -98,6 +113,16 @@ def parity_cases():
         cols=["a", "b"], interactions=[["a", "b"]], stats=["mean"], cv=5, random_state=0
     )
 
+    # stats arc (2026-07): moments-based shape stats (GPU-supported), incl. the 1e9-offset
+    # stability case, and WOE (binary, derived from the smoothed probability).
+    yield "regression_skew", X, y_reg, {**base, "stats": ["skew"]}
+    yield "regression_kurt", X, y_reg, {**base, "stats": ["kurt"]}
+    y_off = 1e9 + y_reg
+    yield "shape_offset_1e9", X, y_off, {**base, "stats": ["mean", "var", "skew", "kurt"]}
+    yield "binary_woe_auto", X, y_bin, {**base, "stats": ["mean", "woe"]}
+    yield "binary_woe_m20", X, y_bin, {**base, "stats": ["woe"], "smooth": 20.0}
+    yield "regression_median", X, y_reg, {**base, "stats": ["median"]}
+
 
 def run_parity():
     import numpy as np
@@ -143,24 +168,97 @@ def run_parity():
 
 
 def run_crossover():
+    """Three-lane crossover: cpu / gpu-host-origin (pandas in, numpy out) / gpu-device-resident
+    (cuDF in, cuDF out -- conversions outside the timed region, no D2H timed). Two stat
+    profiles exercise the order-2 and order-4 additive kernels; a median lane exercises the
+    per-fold device group-by; transform-only rows time the device gather."""
+    import cudf
+    import cupy as cp
     import numpy as np
     import pandas as pd
 
     from catstat import TargetEncoder
 
-    rng = np.random.default_rng(1)
     rows = []
+    profiles = {"mean": ["mean"], "mvsk": ["mean", "var", "skew", "kurt"]}
     for n in (10_000, 100_000, 1_000_000, 5_000_000, 10_000_000):
         k = max(2, n // 40)
+        rng = np.random.default_rng(1)
         X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
         y = rng.normal(size=n)
-        kw = dict(cols=["g"], stats=["mean"], cv=5, random_state=0, output="numpy")
-        rec = {"kind": "crossover", "n": n, "cardinality": k}
+        Xg, y_dev = cudf.from_pandas(X), cp.asarray(y)  # outside the timed region
+        reps = 5 if n >= 1_000_000 else 3
+        for pname, stats in profiles.items():
+            kw = dict(cols=["g"], stats=stats, cv=5, random_state=0)
+            rec = {"kind": "crossover", "n": n, "cardinality": k, "profile": pname, "reps": reps}
+            try:
+                cpu_s = _med(
+                    lambda: TargetEncoder(**kw, output="numpy", backend="cpu").fit_transform(X, y),
+                    reps,
+                )
+                TargetEncoder(**kw, output="numpy", backend="gpu").fit_transform(X, y)  # warmup
+                host_s = _med(
+                    lambda: TargetEncoder(**kw, output="numpy", backend="gpu").fit_transform(X, y),
+                    reps,
+                )
+                TargetEncoder(**kw, backend="gpu").fit_transform(Xg, y_dev)  # warmup
+                dev_s = _med(
+                    lambda: TargetEncoder(**kw, backend="gpu").fit_transform(Xg, y_dev), reps
+                )
+                rec.update(
+                    cpu_ft_s=cpu_s,
+                    gpu_host_ft_s=host_s,
+                    gpu_dev_ft_s=dev_s,
+                    speedup_host=round(cpu_s / host_s, 2),
+                    speedup_dev=round(cpu_s / dev_s, 2),
+                )
+            except Exception as exc:
+                rec["error"] = repr(exc)
+            print(rec, flush=True)
+            rows.append(rec)
+
+        if n in (1_000_000, 10_000_000):  # transform-only: the device gather vs host map
+            kw = dict(cols=["g"], stats=["mean"], cv=5, random_state=0)
+            rec = {"kind": "transform", "n": n, "cardinality": k, "profile": "mean", "reps": reps}
+            try:
+                cpu_e = TargetEncoder(**kw, output="numpy", backend="cpu").fit(X, y)
+                dev_e = TargetEncoder(**kw, backend="gpu").fit(Xg, y_dev)
+                cpu_s = _med(lambda: cpu_e.transform(X), reps)
+                dev_e.transform(Xg)  # warmup
+                dev_s = _med(lambda: dev_e.transform(Xg), reps)
+                rec.update(
+                    cpu_t_s=cpu_s, gpu_dev_t_s=dev_s, speedup_dev=round(cpu_s / dev_s, 2)
+                )
+            except Exception as exc:
+                rec["error"] = repr(exc)
+            print(rec, flush=True)
+            rows.append(rec)
+
+    for n in (1_000_000, 5_000_000):  # median: per-fold loop, both sides
+        k = max(2, n // 40)
+        rng = np.random.default_rng(2)
+        X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
+        y = rng.normal(size=n)
+        Xg, y_dev = cudf.from_pandas(X), cp.asarray(y)
+        kw = dict(cols=["g"], stats=["median"], cv=5, random_state=0)
+        rec = {"kind": "crossover", "n": n, "cardinality": k, "profile": "median", "reps": 3}
         try:
-            cpu_s = _med(lambda: TargetEncoder(**kw, backend="cpu").fit_transform(X, y), 3)
-            TargetEncoder(**kw, backend="gpu").fit_transform(X, y)  # warmup
-            gpu_s = _med(lambda: TargetEncoder(**kw, backend="gpu").fit_transform(X, y), 3)
-            rec.update(cpu_ft_s=cpu_s, gpu_ft_s=gpu_s, speedup=round(cpu_s / gpu_s, 2))
+            cpu_s = _med(
+                lambda: TargetEncoder(**kw, output="numpy", backend="cpu").fit_transform(X, y), 3
+            )
+            TargetEncoder(**kw, output="numpy", backend="gpu").fit_transform(X, y)
+            host_s = _med(
+                lambda: TargetEncoder(**kw, output="numpy", backend="gpu").fit_transform(X, y), 3
+            )
+            TargetEncoder(**kw, backend="gpu").fit_transform(Xg, y_dev)
+            dev_s = _med(lambda: TargetEncoder(**kw, backend="gpu").fit_transform(Xg, y_dev), 3)
+            rec.update(
+                cpu_ft_s=cpu_s,
+                gpu_host_ft_s=host_s,
+                gpu_dev_ft_s=dev_s,
+                speedup_host=round(cpu_s / host_s, 2),
+                speedup_dev=round(cpu_s / dev_s, 2),
+            )
         except Exception as exc:
             rec["error"] = repr(exc)
         print(rec, flush=True)
@@ -193,15 +291,31 @@ def write(rows):
         )
     lines += [
         "",
-        "## Crossover (mean encoder; fit_transform median seconds)",
-        "| n | cardinality | cpu_ft_s | gpu_ft_s | speedup (cpu/gpu) |",
-        "|---|-------------|----------|----------|-------------------|",
+        "## Crossover (fit_transform median seconds; lanes: cpu / gpu host-origin /"
+        " gpu device-resident)",
+        "| n | cardinality | profile | reps | cpu | gpu-host | gpu-dev |"
+        " speedup host | speedup dev |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in cross:
         lines.append(
-            f"| {r['n']} | {r['cardinality']} | {r.get('cpu_ft_s')} | "
-            f"{r.get('gpu_ft_s')} | {r.get('speedup')} |"
+            f"| {r['n']} | {r['cardinality']} | {r.get('profile')} | {r.get('reps')} "
+            f"| {r.get('cpu_ft_s')} | {r.get('gpu_host_ft_s')} | {r.get('gpu_dev_ft_s')} "
+            f"| {r.get('speedup_host')} | {r.get('speedup_dev')} |"
         )
+    trans = [r for r in rows if r["kind"] == "transform"]
+    if trans:
+        lines += [
+            "",
+            "## Transform-only (fitted encoder; median seconds)",
+            "| n | cpu | gpu-dev (cuDF in/out) | speedup dev |",
+            "|---|---|---|---|",
+        ]
+        for r in trans:
+            lines.append(
+                f"| {r['n']} | {r.get('cpu_t_s')} | {r.get('gpu_dev_t_s')} "
+                f"| {r.get('speedup_dev')} |"
+            )
     Path("/content/parity_report.md").write_text("\n".join(lines) + "\n")
     print("wrote /content/parity.jsonl and /content/parity_report.md", flush=True)
 

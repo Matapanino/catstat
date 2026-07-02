@@ -3,6 +3,40 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Device-resident cuDF pipelines** (`backend="gpu"`/`"auto"`): `fit`/`fit_transform`/`transform`
+  accept a cuDF DataFrame (y as cupy/cudf/numpy) and keep the data on the GPU end-to-end —
+  device factorize, int64 joint codes, on-device OOF kernel, device gather — returning cuDF by
+  default (`output="auto"`); `output="cudf"` also works from pandas input (one explicit H2D).
+  Device input routes to the GPU *regardless* of the auto-GPU flag (device residency is a
+  categorical signal, never a silent transfer; `backend="cpu"` + cuDF raises). On a Colab T4 the
+  device-resident lane runs **~2.6× (100k rows) to ~6–13× (1M–10M rows)** faster than CPU across
+  mean/multi-stat/median profiles and transform. sklearn `set_output(transform="pandas")` still
+  wins and returns pandas. Not yet on device: custom callables, `numeric` encoding,
+  `scheme="loo"/"ordered"` (clear errors point to `.to_pandas()`).
+- **`stats=["kurt"]`** — per-category excess kurtosis (bias-corrected G2, matching pandas
+  `Series.kurt`). Continuous targets only; no smoothing (honesty rule); `n < 4` or unseen
+  categories fall back to the global kurtosis (0.0 if itself undefined); a constant category
+  encodes as 0.0.
+- **`stats=["woe"]`** — weight of evidence for **binary** targets:
+  `woe = logit(smoothed P(y=1|cat)) − logit(prior)` (positive = over-indexes on the positive
+  class), derived from the existing mean/probability smoothing so it inherits the m-estimate /
+  empirical-Bayes machinery unchanged. Unknown categories encode as exactly **0.0**. Cross-fitted
+  on the single-pass additive kernel; GPU-eligible. Note: a *pure* category yields ±inf under
+  `smooth=0` and under `smooth="auto"` (EB applies no shrinkage at zero within-category
+  variance) — use a fixed `smooth=m > 0` for guaranteed-finite WOE.
+
+### Changed
+- **`skew` (and the new `kurt`) are now computed from per-category power sums**
+  (`category_moments`, shifted by the global mean for numerical stability) instead of pandas
+  `groupby.skew`. Results are unchanged (allclose vs pandas, incl. `y ~ 1e9 ± 1` offsets), but
+  both stats are now **GPU-supported** — requesting `skew` no longer forces the CPU backend.
+- **`skew`/`kurt` `fit_transform` now uses the single-pass additive OOF kernel** (order-4 shifted
+  power sums + complement subtraction) instead of the per-fold group-by loop — same values
+  (allclose; leakage audit re-passed), much faster for high-cardinality data.
+
 ## [0.4.0] — 2026-06-27
 
 ### Added

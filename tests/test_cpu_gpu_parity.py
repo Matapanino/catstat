@@ -12,7 +12,7 @@ import pytest
 pytestmark = pytest.mark.gpu
 
 
-@pytest.mark.parametrize("stats", [["mean"], ["var"]])
+@pytest.mark.parametrize("stats", [["mean"], ["var"], ["skew"], ["kurt"]])
 def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     import pandas as pd
 
@@ -25,6 +25,72 @@ def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     X = pd.DataFrame({"g": g})
 
     kw = dict(cols=["g"], stats=stats, cv=5, random_state=0, output="numpy")
+    a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
+    b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
+    assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-8)
+
+    a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
+    b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
+    assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+
+@pytest.mark.parametrize("order", [2, 4])
+def test_oof_moment_tables_gpu_matches_numpy(order):  # pragma: no cover - GPU only
+    """The device OOF kernel (cupy.bincount per-(fold,key) sums) must match numpy at allclose
+    (fp64 atomics reorder additions -> not bitwise)."""
+    from catstat.backends import _cpu, _gpu
+
+    rng = np.random.default_rng(5)
+    n_folds, n_cat, n = 5, 4_000, 500_000
+    comp = (rng.integers(0, n_folds, n) * n_cat + rng.integers(0, n_cat, n)).astype(np.int64)
+    y = rng.normal(size=n)
+    size = n_folds * n_cat
+    for c, g in zip(
+        _cpu.oof_moment_tables(comp, y, size, order),
+        _gpu.oof_moment_tables(comp, y, size, order),
+    ):
+        assert (c is None) == (g is None)
+        if c is not None:
+            assert np.allclose(c, g, rtol=1e-9, atol=1e-9)
+
+
+def test_cpu_gpu_parity_large_offset():  # pragma: no cover - GPU only
+    """y ~ 1e9 +- 1: fit AND fit_transform must agree across backends -- the fit path reduces
+    about the global mean, so neither backend's cancellation pattern leaks into the encodings."""
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(6)
+    n, k = 200_000, 5_000
+    X = pd.DataFrame({"g": rng.integers(0, k, size=n).astype(str)})
+    y = 1e9 + rng.normal(size=n)
+
+    kw = dict(
+        cols=["g"], stats=["mean", "var", "skew", "kurt"], cv=5, random_state=0, output="numpy"
+    )
+    a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
+    b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
+    assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-5)
+
+    a_ft = np.asarray(TargetEncoder(**kw, backend="cpu").fit_transform(X, y))
+    b_ft = np.asarray(TargetEncoder(**kw, backend="gpu").fit_transform(X, y))
+    assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-5, equal_nan=True)
+
+
+def test_cpu_gpu_parity_binary_woe():  # pragma: no cover - GPU only
+    """WOE rides the mean's GPU reduce (binarized y), so CPU/GPU agree at allclose."""
+    import pandas as pd
+
+    from catstat import TargetEncoder
+
+    rng = np.random.default_rng(4)
+    n, k = 200_000, 5_000
+    g = rng.integers(0, k, size=n).astype(str)
+    y = (rng.uniform(size=n) < 0.4).astype(int)
+    X = pd.DataFrame({"g": g})
+
+    kw = dict(cols=["g"], stats=["mean", "woe"], cv=5, random_state=0, output="numpy")
     a_t = np.asarray(TargetEncoder(**kw, backend="cpu").fit(X, y).transform(X))
     b_t = np.asarray(TargetEncoder(**kw, backend="gpu").fit(X, y).transform(X))
     assert np.allclose(a_t, b_t, rtol=1e-5, atol=1e-8)

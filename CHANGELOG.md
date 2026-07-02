@@ -3,6 +3,25 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.5.2] — 2026-07-02
+
+### Added
+- **Exact scikit-learn `smooth="auto"` parity test** (`tests/test_sklearn_auto_parity.py`,
+  KI-010 resolved): catstat's empirical-Bayes auto-smoothing matches
+  `sklearn.preprocessing.TargetEncoder(smooth="auto")` to fp rounding (binary/constant-target
+  bit-exact) across continuous/binary/multiclass targets, singleton and constant categories,
+  large offsets, and high-cardinality data — the two implement the same formula.
+- Runnable `examples/stats_and_smoothing.py` (shape stats, WOE, sigmoid smoothing,
+  `max_classes`, `laplace_alpha`), part of the green gate.
+
+### Documentation
+- API reference landing page (package docstring), README, and the design-doc §3 parameter
+  sketch refreshed to the shipped 0.5.x surface (three smoothers, `laplace_alpha`,
+  `max_classes`, `interactions`, `output="cudf"`, the device-resident cuDF story).
+- Known-issues table audited: KI-001 (GPU now genuinely faster device-resident), KI-004
+  (loo/ordered), KI-005 (polars) marked resolved; KI-013/014/017/031 rewritten to current
+  reality; environment notes updated (sklearn 1.9 on the dev box).
+
 ## [0.5.1] — 2026-07-02
 
 ### Added

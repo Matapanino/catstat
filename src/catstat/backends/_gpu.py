@@ -323,7 +323,11 @@ def wrap_cudf(data, columns, index=None):
         mat = cp.asarray(data, dtype=cp.float64)
         df = cudf.DataFrame({str(name): mat[:, i] for i, name in enumerate(columns)})
     if index is not None:
-        df.index = index if isinstance(index, cudf.BaseIndex) else cudf.Index(index)
+        # duck-type: cudf renamed its index base class across versions (BaseIndex/Index)
+        if type(index).__module__.startswith("cudf"):
+            df.index = index
+        else:
+            df.index = cudf.from_pandas(pd.Index(index))
     return df
 
 

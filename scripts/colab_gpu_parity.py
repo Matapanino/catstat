@@ -32,8 +32,23 @@ def _sh(cmd):
 def setup():
     WORK.mkdir(parents=True, exist_ok=True)
     _sh(["tar", "xzf", "/content/catstat.tar.gz", "-C", str(WORK)])
-    _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
+    # prefer the image's preinstalled RAPIDS (driver-compatible); pip only when absent
+    probe = subprocess.run(
+        [sys.executable, "-c", "import cudf, cupy; cupy.zeros(1).sum()"], capture_output=True
+    )
+    if probe.returncode != 0:
+        _sh([sys.executable, "-m", "pip", "install", "-q", "cudf-cu12", "cupy-cuda12x"])
     sys.path.insert(0, str(WORK / "src"))
+    try:  # RMM pool: stabilizes the 5M/10M timings (no per-alloc cudaMalloc churn)
+        import cupy
+        import rmm
+        from rmm.allocators.cupy import rmm_cupy_allocator
+
+        rmm.reinitialize(pool_allocator=True, initial_pool_size=6 * 1024**3)
+        cupy.cuda.set_allocator(rmm_cupy_allocator)
+        print("rmm pool: on", flush=True)
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        print("rmm pool init skipped:", exc, flush=True)
 
 
 def _med(fn, reps=3):
@@ -97,6 +112,16 @@ def parity_cases():
     yield "interactions_mean", Xc, y_reg, dict(
         cols=["a", "b"], interactions=[["a", "b"]], stats=["mean"], cv=5, random_state=0
     )
+
+    # stats arc (2026-07): moments-based shape stats (GPU-supported), incl. the 1e9-offset
+    # stability case, and WOE (binary, derived from the smoothed probability).
+    yield "regression_skew", X, y_reg, {**base, "stats": ["skew"]}
+    yield "regression_kurt", X, y_reg, {**base, "stats": ["kurt"]}
+    y_off = 1e9 + y_reg
+    yield "shape_offset_1e9", X, y_off, {**base, "stats": ["mean", "var", "skew", "kurt"]}
+    yield "binary_woe_auto", X, y_bin, {**base, "stats": ["mean", "woe"]}
+    yield "binary_woe_m20", X, y_bin, {**base, "stats": ["woe"], "smooth": 20.0}
+    yield "regression_median", X, y_reg, {**base, "stats": ["median"]}
 
 
 def run_parity():

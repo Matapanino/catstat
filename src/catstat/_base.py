@@ -116,6 +116,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if self.output not in _VALID_OUTPUT:
             raise ValueError(f"output={self.output!r} must be one of {_VALID_OUTPUT}.")
         numeric_mode = self._validate_numeric_params()
+        # refit invalidates the device transform-LUT cache (it mirrors the fitted tables)
+        self.__dict__.pop("_device_transform_luts", None)
 
         # cuDF input: keep the frame device-resident -- key extraction and every heavy reduction
         # run on device (catstat._device); fold assignment, smoothing math, and all fitted
@@ -583,6 +585,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         state = dict(super().__getstate__())
         state.pop("_backend_mod", None)
         state.pop("_device_units", None)  # per-unit device code cache: not picklable, rebuildable
+        state.pop("_device_transform_luts", None)  # device LUT cache: rebuilt on first transform
         return state
 
     def __setstate__(self, state):

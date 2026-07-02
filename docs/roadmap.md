@@ -82,6 +82,9 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   one-vs-rest expansion to the most frequent classes (KI-016 resolved); `encoded_classes_` +
   aligned `target_mean_`; width warning at K>100 uncapped; host + device expansion loops share
   the subset. Leakage audit PASS. `test_max_classes.py`.
+- ✅ **Ergonomics arc 4 (2026-07-02)**: device transform-LUT cache — `build_value_lut`/
+  `build_int_lut` built once per fitted encoder, reused across `transform(cuDF)` calls
+  (invalidated by refit, dropped by pickle). Correctness + invalidation gpu-tested.
 - ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
   marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
   threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**

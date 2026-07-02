@@ -19,6 +19,11 @@ All notable changes to `catstat` are documented here. Format follows
   lists every observed class; the new `encoded_classes_` (and `target_mean_`, aligned to it)
   lists the ones that got columns. An uncapped target with >100 classes now warns.
 
+### Changed
+- **Repeated `transform(cuDF)` is faster**: the device lookup tables (fit-time uniques / joint
+  canonical index) are now built once per fitted encoder and cached across calls (invalidated by
+  refit; dropped on pickle and rebuilt on the next call).
+
 ## [0.5.0] — 2026-07-02
 
 ### Added

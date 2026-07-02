@@ -331,13 +331,13 @@ def wrap_cudf(data, columns, index=None):
     return df
 
 
-def codes_from_uniques(uniques_host, ser):
-    """Device codes of a cuDF column against a fit-time host category index.
+def build_value_lut(uniques_host):
+    """Device LUT for :func:`codes_from_lut`: ``(cudf {k, code}, missing_code)``.
 
-    Returns ``(codes int64 cupy, missing bool cupy)``: nulls map to the index position of the
-    ``MISSING`` sentinel when the fit-time index learned one, else ``-1``; unknown values map to
-    ``-1``. Implemented as a device hash join against the (small, H2D'd) unique table -- robust
-    across cudf versions, unlike ``Index.get_indexer``.
+    The non-MISSING uniques go to device once (the small H2D that dominates repeated small
+    transforms); ``missing_code`` is the index position of the ``MISSING`` sentinel (``-1`` if
+    the fit never learned one). Built per fitted unit and cacheable on the estimator across
+    ``transform(cuDF)`` calls.
     """
     import cudf
     import cupy as cp
@@ -358,6 +358,19 @@ def codes_from_uniques(uniques_host, ser):
             "code": cp.asarray(np.asarray(codes_of_vals, dtype=np.int64)),
         }
     )
+    return lut, missing_code
+
+
+def codes_from_lut(lut, missing_code, ser):
+    """Device codes of a cuDF column against a prebuilt :func:`build_value_lut` table.
+
+    Returns ``(codes int64 cupy, missing bool cupy)``: nulls map to ``missing_code`` when the
+    fit learned a MISSING level, else ``-1``; unknown values map to ``-1``. Implemented as a
+    device hash join -- robust across cudf versions, unlike ``Index.get_indexer``.
+    """
+    import cudf
+    import cupy as cp
+
     n = len(ser)
     left = cudf.DataFrame({"k": ser.reset_index(drop=True), "ord": cp.arange(n)})
     merged = left.merge(lut, on="k", how="left").sort_values("ord")
@@ -368,22 +381,34 @@ def codes_from_uniques(uniques_host, ser):
     return codes, cp.asarray(missing)
 
 
-def codes_from_int_index(index_host, joint_codes):
-    """Canonical positions of device int64 joint codes against the fit-time Int64 index.
+def codes_from_uniques(uniques_host, ser):
+    """One-shot :func:`build_value_lut` + :func:`codes_from_lut` (uncached convenience)."""
+    lut, missing_code = build_value_lut(uniques_host)
+    return codes_from_lut(lut, missing_code, ser)
 
-    Same device hash join as :func:`codes_from_uniques`, but over int64 keys (no MISSING
-    sentinel: a missing component is already folded into the joint code or is ``-1``). Unknown
-    joint codes -> ``-1``.
-    """
+
+def build_int_lut(index_host):
+    """Device LUT of a fit-time Int64 canonical index (joint units); see codes_from_int_lut."""
     import cudf
     import cupy as cp
 
-    lut = cudf.DataFrame(
+    return cudf.DataFrame(
         {
             "k": cp.asarray(np.asarray(index_host, dtype=np.int64)),
             "code": cp.arange(len(index_host), dtype=cp.int64),
         }
     )
+
+
+def codes_from_int_lut(lut, joint_codes):
+    """Canonical positions of device int64 joint codes via a prebuilt :func:`build_int_lut`.
+
+    No MISSING sentinel here (a missing component is already folded into the joint code or is
+    ``-1``); unknown joint codes -> ``-1``.
+    """
+    import cudf
+    import cupy as cp
+
     left = cudf.DataFrame({"k": joint_codes, "ord": cp.arange(joint_codes.shape[0])})
     merged = left.merge(lut, on="k", how="left").sort_values("ord")
     return merged["code"].fillna(-1).astype("int64").to_cupy()

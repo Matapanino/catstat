@@ -34,6 +34,26 @@ def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     assert np.allclose(a_ft, b_ft, rtol=1e-5, atol=1e-8, equal_nan=True)
 
 
+@pytest.mark.parametrize("order", [2, 4])
+def test_oof_moment_tables_gpu_matches_numpy(order):  # pragma: no cover - GPU only
+    """The device OOF kernel (cupy.bincount per-(fold,key) sums) must match numpy at allclose
+    (fp64 atomics reorder additions -> not bitwise)."""
+    from catstat.backends import _cpu, _gpu
+
+    rng = np.random.default_rng(5)
+    n_folds, n_cat, n = 5, 4_000, 500_000
+    comp = (rng.integers(0, n_folds, n) * n_cat + rng.integers(0, n_cat, n)).astype(np.int64)
+    y = rng.normal(size=n)
+    size = n_folds * n_cat
+    for c, g in zip(
+        _cpu.oof_moment_tables(comp, y, size, order),
+        _gpu.oof_moment_tables(comp, y, size, order),
+    ):
+        assert (c is None) == (g is None)
+        if c is not None:
+            assert np.allclose(c, g, rtol=1e-9, atol=1e-9)
+
+
 def test_cpu_gpu_parity_binary_woe():  # pragma: no cover - GPU only
     """WOE rides the mean's GPU reduce (binarized y), so CPU/GPU agree at allclose."""
     import pandas as pd

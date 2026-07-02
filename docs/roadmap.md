@@ -70,6 +70,12 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
   neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
   `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- ✅ **B1 — device additive OOF kernel (2026-07-02, code complete; T4 validation pending B5)**:
+  `_gpu.oof_moment_tables` (`cupy.bincount`, order 2/4; one H2D of comp+y per unit, small tables
+  back) injected through the B0 seam — under `backend="gpu"` the additive OOF path (mean/var/std/
+  skew/kurt/woe) now runs its heavy pass on device instead of never touching the GPU. Parity test
+  gpu-marked (`test_oof_moment_tables_gpu_matches_numpy`); perf claims deferred to the B5
+  crossover verdict (KI-020).
 - ✅ **Stats arc 3 (2026-07-02)**: `stats=["woe"]` — weight of evidence, **binary-only**
   (`StatSpec.binary_only`), derived as `logit(smoothed p) − logit(prior)` from the existing
   mean/probability smoothing (honesty-rule compliant; no new smoothing invented). GPU-eligible and

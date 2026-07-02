@@ -128,23 +128,6 @@ class _OOFTables(NamedTuple):
 _STAT_MIN_N = {"var": 2, "std": 2, "skew": 3, "kurt": 4}
 
 
-def np_moment_tables(comp, y, size, order):
-    """Raw per-(fold, key) count + power sums via numpy ``bincount`` -- the CPU OOF kernel.
-
-    Returns ``(fc, fs, fss, fs3, fs4)`` (the last two ``None`` unless ``order >= 4``), each a
-    float64 array of length ``size = n_folds * n_cat``. The GPU twin
-    (``backends._gpu.oof_moment_tables``) computes the same sums with ``cupy.bincount`` on device
-    and returns them as host arrays, so everything above this seam is backend-blind.
-    """
-    fc = np.bincount(comp, minlength=size).astype(float)
-    fs = np.bincount(comp, weights=y, minlength=size)
-    y2 = y * y
-    fss = np.bincount(comp, weights=y2, minlength=size)
-    if order < 4:
-        return fc, fs, fss, None, None
-    fs3 = np.bincount(comp, weights=y2 * y, minlength=size)
-    fs4 = np.bincount(comp, weights=y2 * y2, minlength=size)
-    return fc, fs, fss, fs3, fs4
 
 
 def factorize_active(keys, missing_mask, handle_missing):
@@ -269,7 +252,7 @@ def complement_tables(
     n_folds,
     order: int = 2,
     shift: float = 0.0,
-    moment_tables=np_moment_tables,
+    moment_tables=None,
 ) -> _OOFTables:
     """Out-of-fold power-sum tables per ``(fold, key)`` cell, by subtraction from the grand
     totals of one composite aggregation.
@@ -281,8 +264,12 @@ def complement_tables(
     per-fold path is asserted at allclose by the audit. ``shift`` is subtracted from ``y`` first
     (exact for shift-invariant stats; the mean finalizer adds it back) so the shape stats'
     subtractive moment reconstruction stays numerically stable. ``moment_tables`` is the backend
-    kernel (:func:`np_moment_tables` on CPU; the cupy twin on GPU).
+    kernel (``backends._cpu.oof_moment_tables`` by default; the cupy twin on GPU).
     """
+    if moment_tables is None:
+        from .backends import _cpu
+
+        moment_tables = _cpu.oof_moment_tables
     y_a = np.asarray(yv_active, dtype=float)
     if shift != 0.0:
         y_a = y_a - shift

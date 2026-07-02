@@ -595,6 +595,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             meta = self._columns_meta[j]
             by_unit.setdefault(meta.feature, []).append((j, meta))
         ms = getattr(self, "min_samples_category", 1)
+        # the per-(fold,key) sums run on the selected backend (numpy bincount / cupy bincount on
+        # device); finalization and the row gather stay host either way (tables are small)
+        kernel = self._backend_mod.oof_moment_tables
         for feat, items in by_unit.items():
             keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[feat])
             n, a, codes, n_cat = factorize_active(keys, missing_mask, self.handle_missing)
@@ -605,7 +608,16 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 order = 4 if shape_req else 2
                 shift = float(y_act.mean()) if shape_req and y_act.size else 0.0
                 tab = complement_tables(
-                    n, a, codes, n_cat, fid_a, y_act, n_folds, order=order, shift=shift
+                    n,
+                    a,
+                    codes,
+                    n_cat,
+                    fid_a,
+                    y_act,
+                    n_folds,
+                    order=order,
+                    shift=shift,
+                    moment_tables=kernel,
                 )
                 for j, meta in items:
                     if meta.stat == "mean":
@@ -616,7 +628,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         oof[:, j] = finalize_dispersion_oof(tab, meta.stat, ms, self.handle_unknown)
             elif self.target_type_ == "binary":  # mean/woe share one binarized table pass
                 yv = self._mean_y_vector(y_arr, items[0][1])[a]
-                tab = complement_tables(n, a, codes, n_cat, fid_a, yv, n_folds)
+                tab = complement_tables(
+                    n, a, codes, n_cat, fid_a, yv, n_folds, moment_tables=kernel
+                )
                 for j, meta in items:
                     if meta.stat == "woe":
                         oof[:, j] = finalize_woe_oof(tab, self.smooth, self.handle_unknown)
@@ -625,7 +639,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             else:  # multiclass: mean only, one table pass per class (factorize shared)
                 for j, meta in items:
                     yv = self._mean_y_vector(y_arr, meta)[a]
-                    tab = complement_tables(n, a, codes, n_cat, fid_a, yv, n_folds)
+                    tab = complement_tables(
+                        n, a, codes, n_cat, fid_a, yv, n_folds, moment_tables=kernel
+                    )
                     oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
         return oof
 

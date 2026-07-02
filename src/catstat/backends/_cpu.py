@@ -85,3 +85,23 @@ def category_agg_custom(keys: np.ndarray, y: np.ndarray, fn) -> pd.Series:
     """Per-category custom aggregation: ``fn(values: ndarray) -> scalar`` (CPU only)."""
     df = pd.DataFrame({"k": pd.Series(keys), "y": np.asarray(y, dtype=float)})
     return df.groupby("k", sort=False)["y"].apply(lambda s: float(fn(s.to_numpy())))
+
+
+def oof_moment_tables(comp, y, size, order):
+    """Raw per-(fold, key) count + power sums via ``np.bincount`` -- the CPU OOF kernel.
+
+    Returns ``(fc, fs, fss, fs3, fs4)`` (the last two ``None`` unless ``order >= 4``), each a
+    float64 array of length ``size = n_folds * n_cat``. The GPU twin computes the same sums with
+    ``cupy.bincount`` on device and returns them as host arrays, so everything above this seam
+    (``_cross_fit.complement_tables`` and the finalizers) is backend-blind.
+    """
+    y = np.asarray(y, dtype=float)
+    fc = np.bincount(comp, minlength=size).astype(float)
+    fs = np.bincount(comp, weights=y, minlength=size)
+    y2 = y * y
+    fss = np.bincount(comp, weights=y2, minlength=size)
+    if order < 4:
+        return fc, fs, fss, None, None
+    fs3 = np.bincount(comp, weights=y2 * y, minlength=size)
+    fs4 = np.bincount(comp, weights=y2 * y2, minlength=size)
+    return fc, fs, fss, fs3, fs4

@@ -104,6 +104,30 @@ def category_reduce(keys: np.ndarray, y: np.ndarray | None = None) -> pd.DataFra
     return _remap_missing_index(out, had_missing)
 
 
+def oof_moment_tables(comp, y, size, order):
+    """GPU twin of ``_cpu.oof_moment_tables``: per-(fold, key) sums via ``cupy.bincount``.
+
+    ``comp``/``y`` may be host numpy (one H2D copy each -- the whole per-unit transfer on the
+    host-origin path) or already-resident cupy arrays (``cp.asarray`` is then a no-op). The
+    returned tables are small (``n_folds * n_cat``) host float64 arrays, so the finalizers above
+    the seam stay backend-blind. fp64 atomics in ``bincount`` reorder additions vs numpy -->
+    parity with CPU holds at allclose, not bitwise (CLAUDE.md invariant #2).
+    """
+    import cupy as cp
+
+    comp_d = cp.asarray(comp)
+    y_d = cp.asarray(y, dtype="float64")
+    fc = cp.bincount(comp_d, minlength=size).astype(cp.float64)
+    fs = cp.bincount(comp_d, weights=y_d, minlength=size)
+    y2 = y_d * y_d
+    fss = cp.bincount(comp_d, weights=y2, minlength=size)
+    if order < 4:
+        return cp.asnumpy(fc), cp.asnumpy(fs), cp.asnumpy(fss), None, None
+    fs3 = cp.bincount(comp_d, weights=y2 * y_d, minlength=size)
+    fs4 = cp.bincount(comp_d, weights=y2 * y2, minlength=size)
+    return cp.asnumpy(fc), cp.asnumpy(fs), cp.asnumpy(fss), cp.asnumpy(fs3), cp.asnumpy(fs4)
+
+
 def category_moments(keys: np.ndarray, y: np.ndarray) -> pd.DataFrame:
     """GPU per-category count + raw power sums ``S1..S4`` (caller pre-shifts ``y``).
 

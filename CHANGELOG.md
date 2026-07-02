@@ -3,6 +3,20 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`stats=["kurt"]`** — per-category excess kurtosis (bias-corrected G2, matching pandas
+  `Series.kurt`). Continuous targets only; no smoothing (honesty rule); `n < 4` or unseen
+  categories fall back to the global kurtosis (0.0 if itself undefined); a constant category
+  encodes as 0.0.
+
+### Changed
+- **`skew` (and the new `kurt`) are now computed from per-category power sums**
+  (`category_moments`, shifted by the global mean for numerical stability) instead of pandas
+  `groupby.skew`. Results are unchanged (allclose vs pandas, incl. `y ~ 1e9 ± 1` offsets), but
+  both stats are now **GPU-supported** — requesting `skew` no longer forces the CPU backend.
+
 ## [0.4.0] — 2026-06-27
 
 ### Added

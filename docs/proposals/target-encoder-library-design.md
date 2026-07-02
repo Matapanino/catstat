@@ -292,11 +292,11 @@ shrinkage** + small-sample fallback (`n<2 → global`). An **opt-in, explicitly-
 `λ`-shrink (`var_enc = λ_i·var_i + (1−λ_i)·global_var`, same `λ_i = n_i/(n_i+m)`) is available for
 users who want it — documented as a heuristic, not principled.
 
-**median / min / max / quantile / skew / custom:** **never blend.** Default = raw statistic with
-fallback to the **global** statistic when `n < min_samples_category` (skew needs `n≥3`). Min/max
-blending is *actively wrong* (produces unobserved values). `skew` is high-variance; documented as
-"use with care." Custom callables must be order-independent (warn otherwise); no smoothing; global
-fallback.
+**median / min / max / quantile / skew / kurt / custom:** **never blend.** Default = raw statistic
+with fallback to the **global** statistic when `n < min_samples_category` (skew needs `n≥3`, kurt
+`n≥4`). Min/max blending is *actively wrong* (produces unobserved values). `skew`/`kurt` are
+high-variance; documented as "use with care." Custom callables must be order-independent (warn
+otherwise); no smoothing; global fallback.
 
 This honesty is itself a feature — the library does not pretend all statistics are equally
 regularizable, which is exactly the trap a naive generalization of target encoding falls into.
@@ -375,7 +375,7 @@ regularizable, which is exactly the trap a naive generalization of target encodi
   | frequency | **0.0** | 0 occurrences ⇒ 0 frequency |
   | var / std | global var / std | safest dispersion prior (a 1-sample category has undefined variance) |
   | median / min / max / quantile | global statistic over all `y` | order stats have no meaningful blend |
-  | skew | global skew (else 0 if undefined) | needs `n≥3`; otherwise the global shape |
+  | skew / kurt | global skew / kurt (else 0 if undefined) | needs `n≥3` / `n≥4`; otherwise the global shape |
   | custom | global value of the callable | consistent with the above |
 
 - A category that was missing-at-fit but appears at transform, when `handle_missing="value"`: if

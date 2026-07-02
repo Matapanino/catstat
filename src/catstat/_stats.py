@@ -2,7 +2,8 @@
 
 M0: ``mean`` (supervised, cross-fitted), ``count``/``frequency`` (unsupervised). Phase 2 added the
 dispersion/order stats ``var``/``std``/``median``/``min``/``max``. Phase 3 adds ``skew`` and
-**custom-callable aggregations** (which subsume quantiles, IQR, etc.).
+**custom-callable aggregations** (which subsume quantiles, IQR, etc.); the stats arc adds ``kurt``
+and reworks ``skew``/``kurt`` to power-sum moments shared by both backends.
 
 Non-mean target statistics are cross-fitted, continuous-target only, with **no principled
 smoothing** (the smoothing honesty rule): order/shape stats never blend; a category below
@@ -39,10 +40,10 @@ _REGISTRY: dict[str, StatSpec] = {
     "median": StatSpec("median", "none", False, True, "te_median", continuous_only=True),
     "min": StatSpec("min", "none", False, True, "te_min", continuous_only=True),
     "max": StatSpec("max", "none", False, True, "te_max", continuous_only=True),
-    # skew uses pandas groupby .skew(); cuDF lacks it, so keep it CPU (gpu_supported=False).
-    "skew": StatSpec(
-        "skew", "none", False, True, "te_skew", gpu_supported=False, continuous_only=True
-    ),
+    # skew/kurt are reconstructed from per-category power sums (category_moments), which both
+    # backends provide -- neither pandas' .skew() nor a cuDF equivalent is needed.
+    "skew": StatSpec("skew", "none", False, True, "te_skew", continuous_only=True),
+    "kurt": StatSpec("kurt", "none", False, True, "te_kurt", continuous_only=True),
 }
 
 

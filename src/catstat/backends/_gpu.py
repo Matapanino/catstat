@@ -104,6 +104,35 @@ def category_reduce(keys: np.ndarray, y: np.ndarray | None = None) -> pd.DataFra
     return _remap_missing_index(out, had_missing)
 
 
+def category_moments(keys: np.ndarray, y: np.ndarray) -> pd.DataFrame:
+    """GPU per-category count + raw power sums ``S1..S4`` (caller pre-shifts ``y``).
+
+    Twin of ``_cpu.category_moments``: only plain group-by sums, which cuDF supports, so the
+    shape stats (skew/kurt) reconstructed from these sums are GPU-supported. Small per-category
+    result returned as pandas (host).
+    """
+    import cudf
+    import cupy as cp
+
+    key_arr, had_missing = _to_nullable(keys)
+    yd = cp.asarray(y, dtype="float64")
+    y2 = yd * yd
+    gdf = cudf.DataFrame(
+        {"k": cudf.Series(key_arr), "y": yd, "y2": y2, "y3": y2 * yd, "y4": y2 * y2}
+    )
+    g = gdf.groupby("k", sort=False, dropna=False)
+    out = cudf.DataFrame(
+        {
+            "count": g["y"].count().astype("float64"),
+            "s1": g["y"].sum(),
+            "s2": g["y2"].sum(),
+            "s3": g["y3"].sum(),
+            "s4": g["y4"].sum(),
+        }
+    ).to_pandas()
+    return _remap_missing_index(out, had_missing)
+
+
 def category_agg(keys: np.ndarray, y: np.ndarray, stat: str) -> pd.Series:
     """GPU dispersion/order group-by; returns a pandas Series (host)."""
     import cudf

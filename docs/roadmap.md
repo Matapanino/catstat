@@ -55,6 +55,11 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 - ✅ **Phase 3a**: `skew` (built-in) + **custom-callable aggregations** (`stats=[("q90", fn)]` or
   dict form; CPU-only, cross-fitted, continuous-only, global fallback). Quantiles/IQR via custom
   callables; `stats=["quantile"]` raises with a helpful hint. `test_phase3.py`.
+- ✅ **Stats arc 1 (2026-07-02)**: `kurt` (built-in, excess kurtosis) + `skew`/`kurt` reworked to
+  **power-sum moments** (`category_moments` on both backends; global-mean shift for numerical
+  stability) — pandas-matching (adjusted G1 / bias-corrected G2, `n<3`/`n<4` → global fallback,
+  constant category → 0.0) and now **GPU-supported** (skew no longer forces the CPU backend).
+  OOF still rides the per-fold slow path (fast-kernel next). `test_shape_stats.py`.
 - ✅ **Phase 3b**: `scheme="loo"` (leave-one-out) + `scheme="ordered"` (CatBoost-style) cross-fitting
   modes for the mean (default `"kfold"`). Leakage-safe, deterministic, mean-only. `test_scheme.py`.
 - ✅ **Phase 3c**: `output="polars"` (returns a polars DataFrame; lazy import, optional dep).

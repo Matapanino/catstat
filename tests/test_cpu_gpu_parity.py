@@ -12,7 +12,7 @@ import pytest
 pytestmark = pytest.mark.gpu
 
 
-@pytest.mark.parametrize("stats", [["mean"], ["var"]])
+@pytest.mark.parametrize("stats", [["mean"], ["var"], ["skew"], ["kurt"]])
 def test_cpu_gpu_parity(stats):  # pragma: no cover - GPU only
     import pandas as pd
 

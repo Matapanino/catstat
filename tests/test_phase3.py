@@ -41,11 +41,14 @@ def test_custom_dict_form():
     assert list(enc.get_feature_names_out()) == ["g__p10"]
 
 
-def test_custom_and_skew_force_cpu_backend():
+def test_custom_forces_cpu_backend_but_skew_is_gpu_eligible():
     X, y = make_regression(seed=3)
-    assert TargetEncoder(cols=["g"], stats=["skew"], backend="auto").fit(X, y).backend_ == "cpu"
-    enc = TargetEncoder(cols=["g"], stats=[("q90", lambda v: np.quantile(v, 0.9))], backend="auto")
-    assert enc.fit(X, y).backend_ == "cpu"
+    # skew is now reconstructed from power-sum moments both backends provide, so it no longer
+    # forces the host (`host_only = not all_gpu`); custom callables remain CPU-only.
+    enc = TargetEncoder(cols=["g"], stats=["skew", "kurt"], backend="auto").fit(X, y)
+    assert all(s.gpu_supported for s in enc._specs)
+    enc2 = TargetEncoder(cols=["g"], stats=[("q90", lambda v: np.quantile(v, 0.9))], backend="auto")
+    assert enc2.fit(X, y).backend_ == "cpu"
 
 
 def test_custom_unseen_falls_back_to_global():

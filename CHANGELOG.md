@@ -3,7 +3,7 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.5.1] — 2026-07-02
 
 ### Added
 - **`smooth="sigmoid"` / `("sigmoid", k, f)`** — the category_encoders `TargetEncoder` blend

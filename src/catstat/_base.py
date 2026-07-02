@@ -18,7 +18,7 @@ from sklearn.utils.validation import check_is_fitted
 from ._aggregations import fit_custom_encoding, fit_stat_encoding
 from ._cross_fit import (
     build_joint_keyplan,
-    complement_moments,
+    complement_tables,
     decode_joint,
     factorize_active,
     finalize_dispersion_oof,
@@ -604,29 +604,29 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 shape_req = any(meta.stat in _SHAPE_STATS for _j, meta in items)
                 order = 4 if shape_req else 2
                 shift = float(y_act.mean()) if shape_req and y_act.size else 0.0
-                mom = complement_moments(
+                tab = complement_tables(
                     n, a, codes, n_cat, fid_a, y_act, n_folds, order=order, shift=shift
                 )
                 for j, meta in items:
                     if meta.stat == "mean":
-                        oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                        oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
                     elif meta.stat in _SHAPE_STATS:
-                        oof[:, j] = finalize_shape_oof(mom, meta.stat, ms, self.handle_unknown)
+                        oof[:, j] = finalize_shape_oof(tab, meta.stat, ms, self.handle_unknown)
                     else:
-                        oof[:, j] = finalize_dispersion_oof(mom, meta.stat, ms, self.handle_unknown)
-            elif self.target_type_ == "binary":  # mean/woe share one binarized moment pass
+                        oof[:, j] = finalize_dispersion_oof(tab, meta.stat, ms, self.handle_unknown)
+            elif self.target_type_ == "binary":  # mean/woe share one binarized table pass
                 yv = self._mean_y_vector(y_arr, items[0][1])[a]
-                mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)
+                tab = complement_tables(n, a, codes, n_cat, fid_a, yv, n_folds)
                 for j, meta in items:
                     if meta.stat == "woe":
-                        oof[:, j] = finalize_woe_oof(mom, self.smooth, self.handle_unknown)
+                        oof[:, j] = finalize_woe_oof(tab, self.smooth, self.handle_unknown)
                     else:
-                        oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
-            else:  # multiclass: mean only, one moment pass per class (factorize shared)
+                        oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
+            else:  # multiclass: mean only, one table pass per class (factorize shared)
                 for j, meta in items:
                     yv = self._mean_y_vector(y_arr, meta)[a]
-                    mom = complement_moments(n, a, codes, n_cat, fid_a, yv, n_folds)
-                    oof[:, j] = finalize_mean_oof(mom, self.smooth, self.handle_unknown)
+                    tab = complement_tables(n, a, codes, n_cat, fid_a, yv, n_folds)
+                    oof[:, j] = finalize_mean_oof(tab, self.smooth, self.handle_unknown)
         return oof
 
     def _slow_oof_into(self, Xdf, y_arr, folds, oof, cols):

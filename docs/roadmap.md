@@ -65,6 +65,11 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   shape stat is requested (`finalize_shape_oof`; per-stat min-n fallback via `_STAT_MIN_N`), so
   skew/kurt no longer force the per-fold slow loop. fast==slow at allclose across the fallback
   matrix incl. a 1e9-offset case; leakage audit re-passed. `test_additive_fast_path.py`.
+- ✅ **B0 — (fold × cat) table OOF kernel (2026-07-02)**: OOF finalizers now build small
+  `(n_folds × n_cat)` value tables from an injectable `moment_tables` kernel and scatter with one
+  gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
+  neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
+  `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
 - ✅ **Stats arc 3 (2026-07-02)**: `stats=["woe"]` — weight of evidence, **binary-only**
   (`StatSpec.binary_only`), derived as `logit(smoothed p) − logit(prior)` from the existing
   mean/probability smoothing (honesty-rule compliant; no new smoothing invented). GPU-eligible and

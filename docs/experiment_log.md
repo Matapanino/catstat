@@ -394,3 +394,32 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   Release `v0.4.0` created from the `[0.4.0]` notes (first GH release since 0.1.1).
 - Carryover: Actions still warn on Node 20 deprecation (bump `actions/checkout@v4` etc.). Next
   feature candidates: `smoothing="sigmoid"`, Laplace add-α for frequency, multiclass `max_classes`.
+
+## 2026-07-02 — Stats arc: kurt + moments-based skew (A1a/A1b), WOE (A2)
+- Hypothesis: skew/kurt reconstructed from shifted power sums S1..S4 match pandas' bias-corrected
+  G1/G2 at allclose, become GPU-supported (plain sums, cuDF-safe) and additive (fast OOF kernel);
+  WOE derived as `logit(smoothed p) − logit(prior)` inherits the principled mean smoothing.
+- Change: `category_moments` (both backends) + `g1_g2_from_power_sums`; `_OOFMoments` → order-4 +
+  global-mean shift; `finalize_shape_oof` + `_STAT_MIN_N`; `StatSpec.binary_only` + `woe` via
+  `_mean_enc_cells`/`finalize_woe_oof`. Branch `feat/shape-stats-moments`.
+- Result: green gate PASS (327 tests); pandas parity incl. y=1e9±1 offsets; fast==slow allclose
+  across the fallback matrix; leakage audits PASS (skew ≤7e-14, kurt ≤2e-12 rel reconstruction;
+  woe exact 0.0; noise traps ≈0); sklearn-compat PASS (1.9.0).
+- **Null/edge finding:** `smooth="auto"` (EB, m_i = σ²_i/τ²) applies **no shrinkage to pure
+  categories** → WOE is ±inf under auto as well as smooth=0; only fixed m>0 guarantees finite.
+  Documented (docstring/CHANGELOG/test-locked), not "fixed" — the auto formula is a protected
+  default.
+- Verdict: KEEP (feature additions; no defaults changed).
+
+## 2026-07-02 — B0: (fold × cat) table OOF kernel (PR-D groundwork)
+- Hypothesis: every OOF encoding is a function of (fold, key), so finalizing on small (F·C)
+  tables + one gather is value-identical and creates the backend seam (`moment_tables`) for the
+  B1 device kernel.
+- Change: `complement_tables`/`np_moment_tables`/`_mean_enc_cells`/`_apply_unknown_cells`/
+  `_scatter_cells` replace the per-row kernel; `kfold_mean_oof_fast` deleted (no callers —
+  the "back-compat" note was stale).
+- Result: old(205b0c9)-vs-new interleaved in-process (n=200k, k=10k, 7 reps): ×1.02–1.21
+  (mean-only ×1.08, +woe ×1.21; spreads overlap for the small wins → "no regression", not a CPU
+  perf claim). Value parity max|Δ| ≤ 1.24e-14 (woe exact). Leakage audit re-PASS. Standard
+  harness: no regressions vs baseline. `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- Verdict: KEEP; baseline unchanged. Next: B1 `oof_moment_tables` on device (cupy.bincount).

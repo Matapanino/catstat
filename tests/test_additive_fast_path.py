@@ -112,6 +112,26 @@ def test_shape_stats_large_offset_fast_equals_slow():
     np.testing.assert_allclose(fast, _slow(X, y, **kw), rtol=1e-6, atol=1e-6, equal_nan=True)
 
 
+def test_handle_unknown_error_raises_only_for_gathered_unseen_cells():
+    """handle_unknown='error' on the table kernel must raise iff an *occupied* cell is unseen
+    (fc>0 & cc==0): a category confined to one fold raises; the same category spanning two folds
+    does not (every fold's complement then contains it)."""
+    from catstat import TargetEncoder
+
+    y = pd.Series(np.random.RandomState(0).randn(100))
+    kw = dict(
+        cols=["a"], stats=["mean"], cv=5, shuffle=False, handle_unknown="error", output="numpy"
+    )
+    # KFold(shuffle=False) on 100 rows: fold 0 = rows 0..19 -> "u" lives only in fold 0
+    X = pd.DataFrame({"a": ["u"] * 20 + [f"c{i % 5}" for i in range(80)]})
+    with pytest.raises(ValueError, match="unknown categories"):
+        TargetEncoder(**kw).fit_transform(X, y)
+    # "u" spans folds 0 and 4 -> every fold's complement contains it -> no raise
+    X2 = pd.DataFrame({"a": ["u"] * 10 + [f"c{i % 5}" for i in range(80)] + ["u"] * 10})
+    out = TargetEncoder(**kw).fit_transform(X2, y)
+    assert np.isfinite(np.asarray(out)).all()
+
+
 def test_small_complement_shape_fallback_finite():
     """Categories of size 3-4: some fold complements drop below skew/kurt's min-n and must take
     the per-fold complement-global fallback -- finite everywhere, never NaN from an undefined

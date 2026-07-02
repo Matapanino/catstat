@@ -10,6 +10,10 @@ All notable changes to `catstat` are documented here. Format follows
   `w = 1/(1 + exp(-(n - k)/f))` toward the prior (bare string = their defaults `k=20, f=10`;
   singleton categories take the prior outright, matching their override). Applies to `mean` and
   `woe`, cross-fitted per fold on the fast kernel; kfold-only (no loo/ordered analogue).
+- **`laplace_alpha`** on `CountEncoder`/`FrequencyEncoder` (default 0.0 = off): Laplace add-α
+  smoothing for **frequencies** — `freq = (count + α)/(n + α·K)`; an unseen category falls back
+  to `α/(n + α·K)` instead of 0.0. Counts stay exact (honesty rule): `normalize=False` with
+  `laplace_alpha > 0` raises.
 
 ## [0.5.0] — 2026-07-02
 

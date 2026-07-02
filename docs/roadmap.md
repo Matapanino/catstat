@@ -75,6 +75,9 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   principled mean/probability smoothing next to fixed-m and `"auto"`; per-fold on the fast OOF
   kernel (host + device share `sigmoid_params`); loo/ordered reject it. Leakage audit PASS
   (reconstruction ≤1e-15). `test_sigmoid_smoothing.py`.
+- ✅ **Ergonomics arc 2 (2026-07-02)**: `laplace_alpha` on `CountEncoder`/`FrequencyEncoder`
+  (default off) — add-α smoothing for frequencies with the `α/(n+αK)` unseen fallback; counts
+  stay exact (raises). Host + device paths share the formula. `test_laplace_frequency.py`.
 - ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
   marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
   threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**

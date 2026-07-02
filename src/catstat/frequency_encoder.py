@@ -8,6 +8,9 @@ from .count_encoder import CountEncoder
 class FrequencyEncoder(CountEncoder):
     """Encode each category by its training frequency (count / n). Unseen categories map to 0.0.
 
+    ``laplace_alpha`` (default 0.0 = off) applies Laplace add-α smoothing:
+    ``freq = (count + α) / (n + α·K)``; unseen categories then fall back to ``α / (n + α·K)``.
+
     ``numeric`` (and ``cardinality_threshold`` / ``n_bins`` / ``binning``) opt numeric columns into
     binning exactly as on :class:`CountEncoder`; a binned numeric column then takes each row's
     **bin frequency** -- a normalized histogram. See :class:`CountEncoder` for the full description.
@@ -16,6 +19,7 @@ class FrequencyEncoder(CountEncoder):
     def __init__(
         self,
         cols="auto",
+        laplace_alpha=0.0,
         handle_unknown="value",
         handle_missing="value",
         backend="auto",
@@ -29,6 +33,7 @@ class FrequencyEncoder(CountEncoder):
         super().__init__(
             cols=cols,
             normalize=True,
+            laplace_alpha=laplace_alpha,
             handle_unknown=handle_unknown,
             handle_missing=handle_missing,
             backend=backend,

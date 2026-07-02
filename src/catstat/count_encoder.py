@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from ._base import _BaseStatEncoder
 from ._stats import resolve_stats
 
@@ -11,6 +13,11 @@ class CountEncoder(_BaseStatEncoder):
 
     Unsupervised: no ``y`` is used, so there is no target leakage and ``fit_transform`` equals
     ``fit().transform()``. Unseen categories map to 0 (count) / 0.0 (frequency).
+
+    ``laplace_alpha`` (default 0.0 = off) applies **Laplace add-α smoothing to frequencies
+    only**: ``freq = (count + α) / (n + α·K)`` over the ``K`` learned categories, and an unseen
+    category falls back to ``α / (n + α·K)`` instead of 0.0. Counts stay exact (the smoothing
+    honesty rule) -- ``normalize=False`` with ``laplace_alpha > 0`` raises.
 
     ``numeric`` opts numeric columns into encoding (default ``"ignore"`` keeps today's behavior:
     ``cols="auto"`` skips numerics). ``"auto"`` routes each numeric column by cardinality -- at most
@@ -34,6 +41,7 @@ class CountEncoder(_BaseStatEncoder):
         self,
         cols="auto",
         normalize=False,
+        laplace_alpha=0.0,
         handle_unknown="value",
         handle_missing="value",
         backend="auto",
@@ -46,6 +54,7 @@ class CountEncoder(_BaseStatEncoder):
     ):
         self.cols = cols
         self.normalize = normalize
+        self.laplace_alpha = laplace_alpha
         self.handle_unknown = handle_unknown
         self.handle_missing = handle_missing
         self.backend = backend
@@ -60,4 +69,13 @@ class CountEncoder(_BaseStatEncoder):
         return False
 
     def _resolve_stat_specs(self):
+        alpha = self.laplace_alpha
+        alpha = 0.0 if alpha is None else float(alpha)
+        if alpha < 0 or not np.isfinite(alpha):
+            raise ValueError(f"laplace_alpha={self.laplace_alpha!r} must be a finite float >= 0.")
+        if alpha > 0 and not self.normalize:
+            raise ValueError(
+                "laplace_alpha smooths frequencies only; counts are exact (the smoothing "
+                "honesty rule). Use normalize=True / FrequencyEncoder, or laplace_alpha=0."
+            )
         return resolve_stats(["frequency" if self.normalize else "count"])

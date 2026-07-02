@@ -156,8 +156,13 @@ def fit_all_device(est, units, y) -> dict:
                 entries.append(((feat, "count", None), pd.Series(cnt, index=uniques), 0.0))
             elif spec.name == "frequency":
                 (cnt,) = _gpu.code_moments(codes_act, None, n_cat)
-                freq = cnt / float(max(n_total, 1))
-                entries.append(((feat, "frequency", None), pd.Series(freq, index=uniques), 0.0))
+                alpha = float(getattr(est, "laplace_alpha", 0.0) or 0.0)  # validated at resolve
+                if alpha > 0.0:  # Laplace add-alpha, mirroring the host _fit_count
+                    denom = float(max(n_total, 1)) + alpha * float(n_cat)
+                    freq, fb = (cnt + alpha) / denom, alpha / denom
+                else:
+                    freq, fb = cnt / float(max(n_total, 1)), 0.0
+                entries.append(((feat, "frequency", None), pd.Series(freq, index=uniques), fb))
         if supervised and target_specs:
             entries.extend(
                 _fit_target_stats_device(est, feat, codes_act, _active, uniques, n_cat, y, ms)

@@ -435,12 +435,17 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     tables[tkey] = _UnitEncoding(canonical, vals, fb)
         return tables
 
-    @staticmethod
-    def _fit_count(keys, normalize, n_total):
+    def _fit_count(self, keys, normalize, n_total):
         vc = pd.Series(keys).value_counts().astype(float)
-        if normalize:
-            vc = vc / float(max(n_total, 1))
-        return vc, 0.0
+        if not normalize:
+            return vc, 0.0
+        alpha = float(getattr(self, "laplace_alpha", 0.0) or 0.0)  # validated at spec-resolve
+        if alpha > 0.0:
+            # Laplace add-alpha over the K learned categories: a principled prior for a
+            # probability. Unseen categories get the same pseudo-count mass (the fallback).
+            denom = float(max(n_total, 1)) + alpha * float(len(vc))
+            return (vc + alpha) / denom, alpha / denom
+        return vc / float(max(n_total, 1)), 0.0
 
     def _build_joint_keyplans(self, Xdf):
         """Per-combination-unit :class:`~._cross_fit._JointKeyPlan` from full X (X-only labeling).

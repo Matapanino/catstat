@@ -55,7 +55,7 @@ statistics to emit:
 
 | `stats=` entry | smoothing | target | GPU | column infix |
 |---|---|---|---|---|
-| `"mean"` | m-estimate (fixed) / empirical-Bayes (`smooth="auto"`) | regression / binary / multiclass | ✅ | `te_mean` |
+| `"mean"` | m-estimate (fixed) / empirical-Bayes (`"auto"`, = sklearn's formula) / `"sigmoid"` (category_encoders') | regression / binary / multiclass | ✅ | `te_mean` |
 | `"count"` | — | unsupervised | ✅ | `count` |
 | `"frequency"` | — | unsupervised | ✅ | `freq` |
 | `"var"`, `"std"` | — (global fallback) | regression | ✅ | `te_var`, `te_std` |
@@ -64,15 +64,20 @@ statistics to emit:
 | `"woe"` | inherits the mean's smoothing (logit-derived) | binary | ✅ | `woe` |
 | `("name", callable)` — custom (quantiles, IQR, …) | — (global fallback) | regression | CPU only | `name` |
 
-**Smoothing honesty:** only mean/probability statistics are smoothed. Count/frequency get none;
-order/shape statistics never blend — below `min_samples_category` (or where undefined) they fall
-back to the **global** statistic. (`stats=["quantile"]` raises with a hint to pass a custom
-callable such as `("q90", lambda v: np.quantile(v, 0.9))`.)
+**Smoothing honesty:** only mean/probability statistics are smoothed — `smooth` accepts a fixed
+`m`, `"auto"` (empirical-Bayes, verified **exactly** sklearn's `TargetEncoder(smooth="auto")`
+formula), or `"sigmoid"` / `("sigmoid", k, f)` (category_encoders' blend). Counts get none;
+frequencies optionally take **Laplace add-α** (`laplace_alpha` on `CountEncoder`/
+`FrequencyEncoder`: unseen → `α/(n+αK)` instead of 0). Order/shape statistics never blend — below
+`min_samples_category` (or where undefined) they fall back to the **global** statistic.
+(`stats=["quantile"]` raises with a hint to pass a custom callable such as
+`("q90", lambda v: np.quantile(v, 0.9))`.)
 
 Other knobs: `scheme ∈ {kfold, loo, ordered}` (cross-fitting for the mean; `loo`/`ordered` are
-mean-only), `multi_feature_mode ∈ {independent, combination}` (joint group-by), `handle_unknown` /
-`handle_missing ∈ {value, return_nan, error}`, `backend ∈ {auto, cpu, gpu}`, and `output ∈
-{auto, numpy, pandas, polars}`.
+mean-only), `multi_feature_mode ∈ {independent, combination}` + `interactions=[[...]]` (joint
+group-bys), `max_classes` (cap the multiclass one-vs-rest expansion to the most frequent
+classes), `handle_unknown` / `handle_missing ∈ {value, return_nan, error}`,
+`backend ∈ {auto, cpu, gpu}`, and `output ∈ {auto, numpy, pandas, polars, cudf}`.
 
 ## Leakage-safe by design
 

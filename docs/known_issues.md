@@ -6,7 +6,7 @@ correctness/leakage), **S2** (functional gap), **S3** (polish). Update as items 
 ## Status: M0 shipped (2026-06-26) — CPU only
 The deferrals below are **intentional scope boundaries** for M0, not bugs. The leakage risk
 (KI-011) is now actively guarded by `tests/test_cross_fit_no_leakage.py` (OOF reconstruction is
-exact). KI-010 (auto-smoothing parity) remains open.
+exact). KI-010 (auto-smoothing parity) is resolved — exact sklearn parity verified.
 
 ## Intentional deferrals (not bugs — do not "fix" without a roadmap change)
 | id | sev | item | notes |
@@ -25,7 +25,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 ## Open risks to track (carry into implementation)
 | id | sev | risk | mitigation |
 |----|-----|------|-----------|
-| KI-010 | S1 | `smooth="auto"` exact formula unverified | local sklearn is 1.2 (no `TargetEncoder`); verify against `_target_encoder_fast.pyx` before claiming sklearn parity. |
+| KI-010 | — | ~~`smooth="auto"` exact formula unverified~~ | **Resolved 2026-07-02**: with sklearn 1.9 locally, catstat's EB (`m_i = σ²_pop_i/τ²_pop`, `λ = n/(n+m)`) matches sklearn `TargetEncoder(smooth='auto').encodings_` to fp rounding (max rel ≤ 4e-14; binary/constant-target bit-exact) across continuous/binary/multiclass, singletons, constant categories, 1e9 offsets, 500-cat high-card. Same formula (`λ = n·τ²/(n·τ² + SS/n)`). Guarded by `tests/test_sklearn_auto_parity.py` (skips < 1.4). |
 | KI-011 | S1 | Leakage via implementation detail | OOF reconstruction test + `leakage-audit` skill gate every cross-fit/smoothing change. |
 | KI-012 | S3 | sklearn `check_estimator` — documented subset | **2026-06-26**: applicable checks pass (`tests/test_check_estimator.py`, sklearn ≥ 1.6); inapplicable ones waived with reasons (sparse, 1d/empty/complex input, by-name `n_features`, y-messages). Estimator pickling fixed. |
 | KI-013 | S2 | cuDF weak on object/high-cardinality strings | `auto` avoids GPU for those; document. |

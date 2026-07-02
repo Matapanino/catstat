@@ -134,19 +134,25 @@ from catstat import TargetEncoder, CountEncoder, FrequencyEncoder
 
 enc = TargetEncoder(
     cols="auto",                      # "auto"→object/category (int opt-in) | list[str] | list[int]
-    stats=["mean"],                   # str | list[str] | {name: callable}
+    stats=["mean"],                   # str | list[str|('name', callable)] | {name: callable}
     target_type="auto",               # auto | continuous | binary | multiclass
-    smooth="auto",                    # "auto" (empirical-Bayes) | float>=0 (m-estimate)
+    smooth="auto",                    # "auto" (EB, = sklearn) | float>=0 (m-estimate)
+                                      # | "sigmoid" | ("sigmoid", k, f)  (category_encoders)
     cv=5,                             # int | sklearn CV splitter | iterable of (train,test) idx
+    scheme="kfold",                   # kfold | loo | ordered (loo/ordered: mean-only)
     shuffle=True,
     random_state=42,
     handle_unknown="value",           # value | return_nan | error
     handle_missing="value",           # value | return_nan | error
     multi_feature_mode="independent", # independent | combination (joint)
+    interactions=None,                # [[colA, colB], ...] extra joint units
     min_samples_category=1,           # below this, non-mean stats fall back to the global stat
-    backend="auto",                   # auto | cpu | gpu
-    output="auto",                    # auto | pandas | numpy | cudf | cupy | polars
+    max_classes=None,                 # cap the multiclass one-vs-rest expansion (KI-016)
+    backend="auto",                   # auto | cpu | gpu (cuDF input routes to gpu automatically)
+    output="auto",                    # auto | pandas | numpy | cudf | polars ("cupy" deferred)
+    numeric="ignore",                 # ignore | auto | direct | bin (+ binning knobs, §"numeric")
 )
+# CountEncoder/FrequencyEncoder add: normalize (Count only), laplace_alpha (frequency add-α)
 
 X_train_enc = enc.fit_transform(X_train, y_train)   # leakage-safe (out-of-fold)
 X_test_enc  = enc.transform(X_test)                 # full-data encodings

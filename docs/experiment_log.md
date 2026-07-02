@@ -513,3 +513,9 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 - **Docs refresh**: package docstring (pdoc landing) + README (smoothing options incl. sigmoid,
   laplace_alpha, max_classes, output="cudf", interactions) + design-doc §3 param sketch brought to
   the 0.5.x surface; new runnable `examples/stats_and_smoothing.py` added to the green gate.
+
+## 2026-07-02 — 0.5.2 released to PyPI (ops, not an experiment)
+- KI-010 sklearn auto-parity test + 0.5.x docs refresh + known-issues audit shipped as **0.5.2**
+  (PR #28 features, PR #29 KI-audit + release). `v0.5.2` tag → Trusted Publishing green on the
+  first run this time. KI table now has only honest environment notes open (KI-011 guard,
+  KI-013/014/015/017 S3 notes, KI-020 auto-off).

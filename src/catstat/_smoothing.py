@@ -4,10 +4,11 @@ Only mean/probability admit principled smoothing (see docs: the "smoothing hones
 This module implements the fixed m-estimate, the ``smooth='auto'`` empirical-Bayes estimate, and
 the ``smooth='sigmoid'`` blend (category_encoders parity).
 
-For ``smooth='auto'`` we use the documented empirical-Bayes form ``m_i = sigma_i^2 / tau^2`` with
-population (ddof=0) variances, blending ``lambda_i = n_i / (n_i + m_i)`` toward the global mean.
-The exact parity with scikit-learn's auto formula is a known follow-up (docs/known_issues KI-010);
-the leakage/determinism guarantees do not depend on the smoothing constant.
+For ``smooth='auto'`` we use the empirical-Bayes form ``m_i = sigma_i^2 / tau^2`` with population
+(ddof=0) variances, blending ``lambda_i = n_i / (n_i + m_i)`` toward the global mean. This is
+**exactly scikit-learn's** ``TargetEncoder(smooth="auto")`` formula (their
+``lambda = n*tau^2 / (n*tau^2 + SS/n)`` is the same expression): verified to fp rounding across
+target types and edge cases by ``tests/test_sklearn_auto_parity.py`` (KI-010, resolved).
 
 ``smooth='sigmoid'`` (or ``('sigmoid', k, f)``) reproduces category_encoders' ``TargetEncoder``:
 ``w = 1/(1 + exp(-(n - k)/f))``, ``enc = w*mean + (1-w)*prior``, with a singleton category

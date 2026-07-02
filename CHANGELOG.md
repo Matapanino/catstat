@@ -3,7 +3,7 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] — 2026-07-02
 
 ### Added
 - **Device-resident cuDF pipelines** (`backend="gpu"`/`"auto"`): `fit`/`fit_transform`/`transform`

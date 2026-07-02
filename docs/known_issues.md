@@ -31,7 +31,7 @@ exact). KI-010 (auto-smoothing parity) remains open.
 | KI-013 | S2 | cuDF weak on object/high-cardinality strings | `auto` avoids GPU for those; document. |
 | KI-014 | S2 | pandas↔cuDF NaN/dtype semantics differ | parity at allclose; normalize dtypes in `_validation`. |
 | KI-015 | S3 | Custom aggregations must be order-independent | warn otherwise; CPU-only; no smoothing. |
-| KI-016 | S3 | Multiclass column explosion for large `K` | class-agnostic stats not `×K`; width warning; class subset. |
+| KI-016 | — | ~~Multiclass column explosion for large `K`~~ | **Resolved 2026-07-02**: `max_classes` caps the one-vs-rest expansion to the most frequent classes (`encoded_classes_`/`target_mean_` aligned; ties break toward the earlier class); an uncapped `K > 100` target warns. Class-agnostic stats were already not `×K`. |
 | KI-017 | S3 | RAPIDS install on Colab is slow/fragile | keep parity job minimal + watchdogged. |
 | KI-021 | — | ~~CI red: bare `pytest` can't import `tests`~~ | **Resolved 2026-06-26**: CI ran `pytest tests/` (not `python -m pytest`), so the repo root was off `sys.path` and `tests.conftest` failed to import. Added `pythonpath=["src","."]` to the pytest config. |
 | KI-022 | — | ~~`cols="auto"` misses pandas ≥3.0 default string dtype~~ | **Resolved 2026-06-26**: `select_cols` now also selects pandas `StringDtype` (pandas 3.0 types strings as `StringDtype`, not `object`). Verified on sklearn 1.9 / pandas 3.0.3 — full suite green. |

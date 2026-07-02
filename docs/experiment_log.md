@@ -480,3 +480,17 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   (wheel + sdist); GitHub Release created from the CHANGELOG section; clean-venv
   `pip install catstat==0.5.0` imports and encodes.
 - No defaults changed: `_AUTO_GPU_ENABLED` stays off per the fresh crossover verdict.
+
+## 2026-07-02 — Ergonomics arc: sigmoid smoothing / laplace_alpha / max_classes / device LUT cache
+- Four user-instructed features, one branch (`feat/smoothing-and-ergonomics`), each its own commit +
+  gate: (1) `smooth="sigmoid"`/`("sigmoid",k,f)` — category_encoders blend incl. the singleton→prior
+  override; single source `sigmoid_params` shared by fit (host+device) and the OOF cells; loo/ordered
+  reject it; OOF reconstruction ≤1e-15. (2) `laplace_alpha` on Count/Frequency — `(count+α)/(n+αK)`
+  with the `α/(n+αK)` unseen fallback; counts stay exact (raises); validated once in
+  `_resolve_stat_specs` for both paths. (3) `max_classes` (KI-016 resolved) — `encoded_classes_`
+  subset by training frequency, `target_mean_` aligned, K>100 uncapped warns; capped-multiclass OOF
+  reconstruction exact (3e-17). (4) device transform-LUT cache — `build_value_lut`/`build_int_lut`
+  cached per fitted encoder, refit-invalidated, pickle-dropped.
+- Result: local gate green (384 tests); **T4 full suite 384 passed** (fresh session; the assignment
+  quota from earlier in the day had reset).
+- Verdict: KEEP; no defaults changed (all new knobs off/None by default).

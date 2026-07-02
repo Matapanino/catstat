@@ -70,6 +70,21 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
   gather — value-identical (max|Δ| ≤ 1.2e-14 vs per-row; leakage audit re-PASS), CPU
   neutral-to-modest (×1.02–1.21 interleaved), and the seam the PR-D device kernel plugs into.
   `docs/verdicts/2026-07-02-b0-table-oof-kernel-verdict.md`.
+- ✅ **Ergonomics arc 1 (2026-07-02)**: `smooth="sigmoid"` / `("sigmoid", k, f)` — the
+  category_encoders blend (`w = σ((n−k)/f)`, singleton→prior override included) as a third
+  principled mean/probability smoothing next to fixed-m and `"auto"`; per-fold on the fast OOF
+  kernel (host + device share `sigmoid_params`); loo/ordered reject it. Leakage audit PASS
+  (reconstruction ≤1e-15). `test_sigmoid_smoothing.py`.
+- ✅ **Ergonomics arc 2 (2026-07-02)**: `laplace_alpha` on `CountEncoder`/`FrequencyEncoder`
+  (default off) — add-α smoothing for frequencies with the `α/(n+αK)` unseen fallback; counts
+  stay exact (raises). Host + device paths share the formula. `test_laplace_frequency.py`.
+- ✅ **Ergonomics arc 3 (2026-07-02)**: `max_classes` on `TargetEncoder` — caps the multiclass
+  one-vs-rest expansion to the most frequent classes (KI-016 resolved); `encoded_classes_` +
+  aligned `target_mean_`; width warning at K>100 uncapped; host + device expansion loops share
+  the subset. Leakage audit PASS. `test_max_classes.py`.
+- ✅ **Ergonomics arc 4 (2026-07-02)**: device transform-LUT cache — `build_value_lut`/
+  `build_int_lut` built once per fitted encoder, reused across `transform(cuDF)` calls
+  (invalidated by refit, dropped by pickle). Correctness + invalidation gpu-tested.
 - ✅ **B5 — fresh T4 three-lane crossover + verdict (2026-07-02)**: host-origin GPU still
   marginal (1.09–1.19× at 1M–10M → **`auto` stays off**, flip criterion ≥1.25× not met,
   threshold unchanged); **device-resident cuDF input: 2.6×@100k → 5.8–12.4×@1M–10M**
@@ -228,7 +243,8 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 > (2.6–12.4× vs CPU on T4; transform ×6.6–13.2), device order-stat OOF, shift-stable fit
 > reductions. `auto` **stays off** for host-origin data (fresh crossover: 1.09–1.19× at 1M–10M,
 > below the ≥1.25× flip bar; KI-020) — cuDF input routes to GPU categorically instead. T4 suite
-> 360 passed. **0.5.0 RELEASED to PyPI (2026-07-02)** — PR #22 (arcs) + #23 (release) merged, `v0.5.0` tag → Trusted Publishing green, GitHub Release created, clean-venv PyPI install verified. **Next candidates (no work started):** `smoothing="sigmoid"` (category_encoders
-> parity), optional Laplace add-α for frequency (default off), multiclass `max_classes` (KI-016),
-> device-uniques cache for repeated `transform(cuDF)`. **Ops nit:** Actions warn on Node 20
+> 360 passed. **0.5.0 RELEASED to PyPI (2026-07-02)** — PR #22 (arcs) + #23 (release) merged, `v0.5.0` tag → Trusted Publishing green, GitHub Release created, clean-venv PyPI install verified. **2026-07-02 ergonomics arc: all four former candidates DONE** (sigmoid smoothing,
+> laplace_alpha, max_classes/KI-016, device transform-LUT cache) — T4 suite 384 passed. **Next
+> candidates (no work started):** KI-010 sklearn `smooth="auto"` exact-parity check; docs/API
+> reference refresh for the 0.5.x features. **Ops nit:** Actions warn on Node 20
 > deprecation (bump `actions/checkout@v4` etc.).

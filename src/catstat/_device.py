@@ -156,8 +156,13 @@ def fit_all_device(est, units, y) -> dict:
                 entries.append(((feat, "count", None), pd.Series(cnt, index=uniques), 0.0))
             elif spec.name == "frequency":
                 (cnt,) = _gpu.code_moments(codes_act, None, n_cat)
-                freq = cnt / float(max(n_total, 1))
-                entries.append(((feat, "frequency", None), pd.Series(freq, index=uniques), 0.0))
+                alpha = float(getattr(est, "laplace_alpha", 0.0) or 0.0)  # validated at resolve
+                if alpha > 0.0:  # Laplace add-alpha, mirroring the host _fit_count
+                    denom = float(max(n_total, 1)) + alpha * float(n_cat)
+                    freq, fb = (cnt + alpha) / denom, alpha / denom
+                else:
+                    freq, fb = cnt / float(max(n_total, 1)), 0.0
+                entries.append(((feat, "frequency", None), pd.Series(freq, index=uniques), fb))
         if supervised and target_specs:
             entries.extend(
                 _fit_target_stats_device(est, feat, codes_act, _active, uniques, n_cat, y, ms)
@@ -228,8 +233,8 @@ def _fit_target_stats_device(est, feat, codes_act, active, uniques, n_cat, y, ms
     # binary / multiclass: mean (per class) and woe (binary) from binarized device passes
     if est.target_type_ == "binary":
         class_vectors = [(None, est.classes_[1])]
-    else:
-        class_vectors = [(c, c) for c in est.classes_]
+    else:  # multiclass: encoded classes only (max_classes may cap)
+        class_vectors = [(c, c) for c in est.encoded_classes_]
     for class_label, pos in class_vectors:
         yb = _gpu.binarize_device(y, pos)
         yb_act = yb[active] if active is not None else yb
@@ -391,15 +396,24 @@ def transform_device_columns(est, Xg) -> list:
             "convert with X.to_pandas()."
         )
     hm, hu = est.handle_missing, est.handle_unknown
+    # per-FIT device LUT cache: the uniques H2D dominates repeated small transforms, so the
+    # lookup tables are built once per fitted unit and reused across transform(cuDF) calls
+    # (invalidated by fit, dropped by __getstate__ -- device objects are not picklable).
+    luts = getattr(est, "_device_transform_luts", None)
+    if luts is None:
+        luts = est._device_transform_luts = {}
     cols: list = []
-    cache: dict = {}
+    cache: dict = {}  # per-CALL unit codes (shared across a unit's stat columns)
     for meta in est._columns_meta:
         feat = meta.feature
         enc = est._fit_tables[est._key(meta)]
         if feat not in cache:
             unit_cols = est._unit_cols[feat]
             if len(unit_cols) == 1:
-                codes, missing = _gpu.codes_from_uniques(enc.index, Xg[unit_cols[0]])
+                if feat not in luts:
+                    luts[feat] = _gpu.build_value_lut(enc.index)
+                lut, missing_code = luts[feat]
+                codes, missing = _gpu.codes_from_lut(lut, missing_code, Xg[unit_cols[0]])
             else:
                 plan = est._unit_keyplans.get(tuple(unit_cols))
                 if plan is None:  # int64 overflow at fit -> tuple keys, host-only
@@ -407,13 +421,19 @@ def transform_device_columns(est, Xg) -> list:
                         f"combination unit {feat!r} was fitted with tuple keys (int64 "
                         "overflow); transform it on pandas input."
                     )
+                if feat not in luts:
+                    luts[feat] = (
+                        [_gpu.build_value_lut(u) for u in plan.uniques],
+                        _gpu.build_int_lut(enc.index),
+                    )
+                comp_luts, int_lut = luts[feat]
                 comp_codes, missing = [], None
-                for u, col in zip(plan.uniques, unit_cols):
-                    c, m = _gpu.codes_from_uniques(u, Xg[col])
+                for (lut, missing_code), col in zip(comp_luts, unit_cols):
+                    c, m = _gpu.codes_from_lut(lut, missing_code, Xg[col])
                     comp_codes.append(c)
                     missing = m if missing is None else (missing | m)
                 joint = _gpu.joint_codes_device(plan.radices, comp_codes)
-                codes = _gpu.codes_from_int_index(enc.index, joint)
+                codes = _gpu.codes_from_int_lut(int_lut, joint)
             if hm == "error" and bool(missing.any()):
                 raise ValueError(f"Missing values in unit {feat!r} with handle_missing='error'.")
             cache[feat] = (codes, missing)

@@ -265,6 +265,37 @@ def test_device_input_order_stats_missing_and_unknown():  # pragma: no cover - G
 
 
 @pytest.mark.gpu
+def test_transform_lut_cache_is_correct_and_invalidated():  # pragma: no cover - GPU only
+    """Repeated transform(cuDF) reuses the device LUT cache with identical results; refit
+    invalidates it; pickling drops it (rebuilt on the next call)."""
+    import pickle
+
+    Xg, Xp, y = _device_data(n=30_000, k=1_000, missing=0.1)
+    kw = dict(cols=["g", "b"], stats=["mean"], multi_feature_mode="combination",
+              handle_missing="value", cv=5, random_state=0, output="numpy")
+    enc = TargetEncoder(**kw, backend="gpu").fit(Xg, y)
+    a = np.asarray(enc.transform(Xg))  # builds the cache
+    assert hasattr(enc, "_device_transform_luts") and enc._device_transform_luts
+    b = np.asarray(enc.transform(Xg))  # served from the cache
+    assert np.array_equal(a, b)
+    ref = np.asarray(TargetEncoder(**kw, backend="cpu").fit(Xp, y).transform(Xp))
+    assert np.allclose(ref, b, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+    # refit on different data must not serve stale LUTs
+    Xg2, Xp2, y2 = _device_data(n=30_000, k=1_000, seed=9, missing=0.1)
+    enc.fit(Xg2, y2)
+    got = np.asarray(enc.transform(Xg2))
+    ref2 = np.asarray(TargetEncoder(**kw, backend="cpu").fit(Xp2, y2).transform(Xp2))
+    assert np.allclose(ref2, got, rtol=1e-5, atol=1e-8, equal_nan=True)
+
+    # pickle round-trip drops the cache and still transforms (pandas path shares the tables)
+    enc2 = pickle.loads(pickle.dumps(enc))
+    assert not hasattr(enc2, "_device_transform_luts")
+    assert np.allclose(np.asarray(enc2.transform(Xp2)), ref2, rtol=1e-5, atol=1e-8,
+                       equal_nan=True)
+
+
+@pytest.mark.gpu
 def test_device_input_determinism():  # pragma: no cover - GPU only
     Xg, _Xp, y = _device_data()
     kw = dict(cols=["g"], stats=["mean"], cv=5, random_state=0, output="numpy", backend="gpu")

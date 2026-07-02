@@ -7,6 +7,7 @@ knows pandas vs cuDF. Subclasses define the sklearn ``__init__`` params and two 
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,7 +35,7 @@ from ._cross_fit import (
 )
 from ._feature_names import build_columns
 from ._numeric import apply_numeric_col, fit_numeric_plan, validate_binning
-from ._smoothing import fit_mean_encoding, woe_from_prob
+from ._smoothing import fit_mean_encoding, sigmoid_params, woe_from_prob
 from ._validation import (
     _is_numeric_like,
     check_handle,
@@ -115,6 +116,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         if self.output not in _VALID_OUTPUT:
             raise ValueError(f"output={self.output!r} must be one of {_VALID_OUTPUT}.")
         numeric_mode = self._validate_numeric_params()
+        # refit invalidates the device transform-LUT cache (it mirrors the fitted tables)
+        self.__dict__.pop("_device_transform_luts", None)
 
         # cuDF input: keep the frame device-resident -- key extraction and every heavy reduction
         # run on device (catstat._device); fold assignment, smoothing math, and all fitted
@@ -169,10 +172,12 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             self.classes_ = (
                 np.unique(y_arr) if self.target_type_ in ("binary", "multiclass") else None
             )
+            self.encoded_classes_ = self._resolve_encoded_classes(y_arr)
         else:
             y_arr = None
             self.target_type_ = None
             self.classes_ = None
+            self.encoded_classes_ = None
 
         for spec in self._specs:
             if spec.continuous_only and self.target_type_ != "continuous":
@@ -199,9 +204,18 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     f"scheme={scheme!r} cross-fits the mean only (count/frequency are allowed "
                     f"too); got target-dependent stats {bad}. Use scheme='kfold' for those."
                 )
+            if sigmoid_params(self.smooth) is not None:
+                raise ValueError(
+                    f"scheme={scheme!r} supports fixed-m or 'auto' smoothing only; "
+                    "smooth='sigmoid' has no leave-one-out/ordered analogue -- use "
+                    "scheme='kfold'."
+                )
 
         self._columns_meta = build_columns(
-            [name for name, _ in self._units], self._specs, self.target_type_, self.classes_
+            [name for name, _ in self._units],
+            self._specs,
+            self.target_type_,
+            self.encoded_classes_,
         )
         self.feature_names_out_ = np.asarray([m.name for m in self._columns_meta], dtype=object)
 
@@ -241,6 +255,35 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         self._set_target_mean()
         return self
 
+    def _resolve_encoded_classes(self, y_arr):
+        """The classes that get one-vs-rest columns (``encoded_classes_``).
+
+        All of ``classes_`` unless the target is multiclass and ``max_classes`` caps them to the
+        most frequent training classes (KI-016 column explosion); ties break toward the earlier
+        class, and the kept classes are presented in ``classes_`` order so the column layout is
+        stable. Without a cap, a very wide multiclass target warns.
+        """
+        if self.classes_ is None or self.target_type_ != "multiclass":
+            return self.classes_
+        mc = getattr(self, "max_classes", None)
+        k = len(self.classes_)
+        if mc is None:
+            if k > 100:
+                warnings.warn(
+                    f"multiclass target with {k} classes expands to {k} columns per "
+                    "class-expanded stat; set max_classes to cap the output width.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return self.classes_
+        if isinstance(mc, bool) or not isinstance(mc, (int, np.integer)) or mc < 1:
+            raise ValueError(f"max_classes={mc!r} must be None or an int >= 1.")
+        if k <= int(mc):
+            return self.classes_
+        _, counts = np.unique(y_arr, return_counts=True)  # np.unique sorts -> aligned to classes_
+        keep = np.sort(np.argsort(-counts, kind="stable")[: int(mc)])
+        return self.classes_[keep]
+
     def _add_interaction_units(self):
         """Append one joint encoding unit per ``interactions`` group (additive to the base units).
 
@@ -279,7 +322,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         f0 = self._units[0][0]
         if self.target_type_ == "multiclass":
             self.target_mean_ = np.asarray(
-                [self._fit_tables[(f0, "mean", c)].fallback for c in self.classes_], dtype=float
+                [self._fit_tables[(f0, "mean", c)].fallback for c in self.encoded_classes_],
+                dtype=float,
             )
         else:
             self.target_mean_ = float(self._fit_tables[(f0, "mean", None)].fallback)
@@ -395,8 +439,8 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                         yb = (y_sel == self.classes_[1]).astype(float)
                         s, fb = fit_mean_encoding(keys, yb, self.smooth, bk, shift=False)
                         entries.append(((feat, "mean", None), s, fb))
-                    else:  # multiclass: one-vs-rest per global class
-                        for c in self.classes_:
+                    else:  # multiclass: one-vs-rest per encoded class (max_classes may cap)
+                        for c in self.encoded_classes_:
                             yc = (y_sel == c).astype(float)
                             s, fb = fit_mean_encoding(keys, yc, self.smooth, bk, shift=False)
                             entries.append(((feat, "mean", c), s, fb))
@@ -429,12 +473,17 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                     tables[tkey] = _UnitEncoding(canonical, vals, fb)
         return tables
 
-    @staticmethod
-    def _fit_count(keys, normalize, n_total):
+    def _fit_count(self, keys, normalize, n_total):
         vc = pd.Series(keys).value_counts().astype(float)
-        if normalize:
-            vc = vc / float(max(n_total, 1))
-        return vc, 0.0
+        if not normalize:
+            return vc, 0.0
+        alpha = float(getattr(self, "laplace_alpha", 0.0) or 0.0)  # validated at spec-resolve
+        if alpha > 0.0:
+            # Laplace add-alpha over the K learned categories: a principled prior for a
+            # probability. Unseen categories get the same pseudo-count mass (the fallback).
+            denom = float(max(n_total, 1)) + alpha * float(len(vc))
+            return (vc + alpha) / denom, alpha / denom
+        return vc / float(max(n_total, 1)), 0.0
 
     def _build_joint_keyplans(self, Xdf):
         """Per-combination-unit :class:`~._cross_fit._JointKeyPlan` from full X (X-only labeling).
@@ -536,6 +585,7 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         state = dict(super().__getstate__())
         state.pop("_backend_mod", None)
         state.pop("_device_units", None)  # per-unit device code cache: not picklable, rebuildable
+        state.pop("_device_transform_luts", None)  # device LUT cache: rebuilt on first transform
         return state
 
     def __setstate__(self, state):

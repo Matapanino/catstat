@@ -3,6 +3,27 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`smooth="sigmoid"` / `("sigmoid", k, f)`** — the category_encoders `TargetEncoder` blend
+  `w = 1/(1 + exp(-(n - k)/f))` toward the prior (bare string = their defaults `k=20, f=10`;
+  singleton categories take the prior outright, matching their override). Applies to `mean` and
+  `woe`, cross-fitted per fold on the fast kernel; kfold-only (no loo/ordered analogue).
+- **`laplace_alpha`** on `CountEncoder`/`FrequencyEncoder` (default 0.0 = off): Laplace add-α
+  smoothing for **frequencies** — `freq = (count + α)/(n + α·K)`; an unseen category falls back
+  to `α/(n + α·K)` instead of 0.0. Counts stay exact (honesty rule): `normalize=False` with
+  `laplace_alpha > 0` raises.
+- **`max_classes`** on `TargetEncoder` (default `None` = all): caps the multiclass one-vs-rest
+  expansion to the most frequent training classes (KI-016 column explosion). `classes_` still
+  lists every observed class; the new `encoded_classes_` (and `target_mean_`, aligned to it)
+  lists the ones that got columns. An uncapped target with >100 classes now warns.
+
+### Changed
+- **Repeated `transform(cuDF)` is faster**: the device lookup tables (fit-time uniques / joint
+  canonical index) are now built once per fitted encoder and cached across calls (invalidated by
+  refit; dropped on pickle and rebuilt on the next call).
+
 ## [0.5.0] — 2026-07-02
 
 ### Added

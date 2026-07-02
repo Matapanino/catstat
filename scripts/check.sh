@@ -19,5 +19,6 @@ python3 examples/binary_classification_basic.py
 python3 examples/multiclass_classification_basic.py
 python3 examples/count_frequency_basic.py
 python3 examples/numeric_target_encoding.py
+python3 examples/stats_and_smoothing.py
 
 echo "All checks passed."

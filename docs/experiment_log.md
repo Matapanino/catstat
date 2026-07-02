@@ -502,3 +502,14 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
   (OIDC audience fetch from the runner); `gh run rerun --failed` succeeded — worth remembering
   before debugging Trusted Publishing config. JSON API showed 0.5.1 minutes before the pip simple
   index did (propagation lag). GitHub Release created from the CHANGELOG section.
+
+## 2026-07-02 — KI-010 resolved + 0.5.x docs refresh
+- **KI-010**: with sklearn 1.9 locally (the KI was blocked on 1.2), catstat `smooth="auto"` matches
+  `sklearn.preprocessing.TargetEncoder(smooth="auto").encodings_` **to fp rounding** (max rel
+  ≤ 4e-14; binary/constant-target bit-exact) across continuous/binary/multiclass, singleton +
+  constant categories, 1e9 offsets, 500-cat data — same formula
+  `λ = n·τ²/(n·τ² + SS/n) = n/(n + σ²_pop/τ²_pop)`. Guarded by `tests/test_sklearn_auto_parity.py`
+  (importorskip ≥ 1.4); `_smoothing` docstring caveat removed.
+- **Docs refresh**: package docstring (pdoc landing) + README (smoothing options incl. sigmoid,
+  laplace_alpha, max_classes, output="cudf", interactions) + design-doc §3 param sketch brought to
+  the 0.5.x surface; new runnable `examples/stats_and_smoothing.py` added to the green gate.

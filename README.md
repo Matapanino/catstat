@@ -50,8 +50,8 @@ CPU today and GPU when it pays off, generalized statistics, always leakage-safe.
 ## What it encodes
 
 Three encoders over a shared core: **`TargetEncoder`** (supervised, cross-fitted) and the
-unsupervised **`CountEncoder`** / **`FrequencyEncoder`**. `TargetEncoder(stats=[...])` selects the
-statistics to emit:
+unsupervised **`CountEncoder`** / **`FrequencyEncoder`** (`"count"`/`"frequency"` also work as
+`TargetEncoder` `stats=` entries). `TargetEncoder(stats=[...])` selects the statistics to emit:
 
 | `stats=` entry | smoothing | target | GPU | column infix |
 |---|---|---|---|---|

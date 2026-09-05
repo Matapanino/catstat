@@ -3,7 +3,7 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.5.3] — 2026-09-05
 
 ### Fixed
 - LOO/ordered smoothing and singleton fallbacks now use label-excluded priors:

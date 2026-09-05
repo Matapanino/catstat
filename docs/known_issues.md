@@ -11,6 +11,15 @@ exact) plus the `leakage-audit` gate; KI-010 (auto-smoothing parity) is resolved
 
 ## Boundary repairs (2026-09-05, WP1; Unreleased)
 
+- **LOO/ordered prior contract:** amended deliberately on 2026-09-05 (WP1).
+  Both category evidence and priors exclude the current target; ordered additionally
+  excludes future targets. LOO uses the other eligible labels' global mean;
+  ordered uses the prefix's global mean. Empty history is fixed `0.0` (all-zero
+  class statistics, not normalized probabilities). Missing feature rows with
+  `return_nan` are excluded from support. Full-fit inference priors are unchanged.
+  The label-exclusion claim is conditional on target type/class schema: full-data
+  type inference, discovered classes and `max_classes` column selection can still
+  change when labels change. This repair does not redesign output-schema selection.
 - **Fit metadata:** `fit_transform` rejects all extra fit parameters, including
   `sample_weight=None`, on every encoder and backend. No weighted-statistics API
   is implemented; callers must not assume weights/groups were applied.

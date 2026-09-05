@@ -72,39 +72,53 @@ def make_folds(n_rows: int, y, splitter) -> list[tuple[np.ndarray, np.ndarray]]:
     return folds
 
 
-def loo_encode(keys, y, m: float, prior: float) -> np.ndarray:
-    """Leave-one-out mean encoding (deterministic, leakage-safe for the training set).
+def _exclusive_prefix(y) -> np.ndarray:
+    """Sum earlier values without ever adding/subtracting the current label."""
+    return np.r_[0.0, np.cumsum(y[:-1])] if len(y) else np.empty(0, dtype=float)
 
-    Each row is encoded by its category mean computed from **every other row**:
-    ``(cat_sum - y_i + m*prior) / (cat_count - 1 + m)``. With ``m=0`` this is the classic LOO mean;
-    singletons (empty denominator) fall back to the global ``prior``.
+
+def _category_prefix(keys, y) -> np.ndarray:
+    sums = pd.Series(y).groupby(keys, sort=False).cumsum()
+    return sums.groupby(keys, sort=False).shift(fill_value=0.0).to_numpy()
+
+
+def loo_encode(keys, y, m: float) -> np.ndarray:
+    """Leave-one-out category mean shrunk to the leave-one-out global mean.
+
+    2026-09-05 WP1: both category evidence and global prior exclude the current
+    label. Empty global support uses the fixed, target-independent value 0.0.
+    Prefix/suffix sums avoid own-label contamination through cancellation in
+    ``total - y_i``. Callers pass only rows eligible for this feature's statistics.
     """
     yv = np.asarray(y, dtype=float)
-    grp = pd.DataFrame({"k": pd.Series(keys), "y": yv}).groupby("k", sort=False)["y"]
-    cat_sum = grp.transform("sum").to_numpy()
-    cat_cnt = grp.transform("count").to_numpy()
-    num = cat_sum - yv + m * prior
-    den = cat_cnt - 1.0 + m
-    den_safe = np.where(den > 0, den, 1.0)  # avoid 0/0 warning; result is overwritten by prior
-    return np.where(den > 0, num / den_safe, prior)
+    ks = np.asarray(keys)
+    if not len(yv):
+        return np.empty(0, dtype=float)
+    other_sum = _exclusive_prefix(yv) + _exclusive_prefix(yv[::-1])[::-1]
+    prior = other_sum / (len(yv) - 1) if len(yv) > 1 else np.zeros(1)
+    cat_sum = _category_prefix(ks, yv) + _category_prefix(ks[::-1], yv[::-1])[::-1]
+    cat_cnt = pd.Series(yv).groupby(ks, sort=False).transform("count").to_numpy() - 1
+    den = cat_cnt + m
+    return np.divide(cat_sum + m * prior, den, out=prior.copy(), where=den > 0)
 
 
-def ordered_encode(keys, y, a: float, prior: float, perm: np.ndarray) -> np.ndarray:
-    """CatBoost-style ordered target statistics.
+def ordered_encode(keys, y, a: float, perm: np.ndarray) -> np.ndarray:
+    """Ordered category statistics shrunk to the prefix-only global mean.
 
-    Walk the rows in a random permutation; each row is encoded from only the **prior** rows of its
-    category in that order: ``(prior_sum + a*prior) / (prior_count + a)`` (first occurrence ->
-    prior).
+    2026-09-05 WP1: neither the current nor future labels enter the category
+    sum or prior. The empty prefix uses the fixed value 0.0. ``a`` is positive;
+    callers retain the existing weight of 1 for auto/non-positive smoothing.
     """
     yv = np.asarray(y, dtype=float)
-    ks = np.asarray(keys, dtype=object)[perm]
+    ks = np.asarray(keys)[perm]
     ys = yv[perm]
-    g = pd.Series(ys).groupby(ks, sort=False)
-    prior_sum = g.cumsum().to_numpy() - ys  # cumsum includes current -> subtract it
-    prior_cnt = g.cumcount().to_numpy()  # 0-based position == count of earlier rows
-    enc_perm = (prior_sum + a * prior) / (prior_cnt + a)
+    prefix_n = np.arange(len(ys))
+    prior = np.divide(_exclusive_prefix(ys), prefix_n,
+                      out=np.zeros(len(ys)), where=prefix_n > 0)
+    cat_sum = _category_prefix(ks, ys)
+    cat_cnt = pd.Series(ys).groupby(ks, sort=False).cumcount().to_numpy()
     out = np.empty(len(yv), dtype=float)
-    out[perm] = enc_perm
+    out[perm] = (cat_sum + a * prior) / (cat_cnt + a)
     return out
 
 

@@ -845,14 +845,20 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 continue
             keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[meta.feature])
             yv = self._mean_y_vector(y_arr, meta)
-            prior = float(yv.mean())
+            # 2026-09-05 WP1: priors use the same eligible rows as category statistics.
+            active = np.flatnonzero(~missing_mask) if self.handle_missing == "return_nan" else (
+                np.arange(len(yv))
+            )
+            vals = np.full(len(yv), np.nan)
             if scheme == "loo":
-                vals = loo_encode(keys, yv, m, prior)
+                vals[active] = loo_encode(keys[active], yv[active], m)
             else:
-                vals = ordered_encode(keys, yv, a, prior, perm)
-            if self.handle_missing == "return_nan":
-                vals = vals.copy()
-                vals[missing_mask] = np.nan
+                # Restrict the original permutation without reshuffling eligible rows.
+                local = np.full(len(yv), -1, dtype=np.intp)
+                local[active] = np.arange(len(active))
+                local_perm = local[perm]
+                local_perm = local_perm[local_perm >= 0]
+                vals[active] = ordered_encode(keys[active], yv[active], a, local_perm)
             oof[:, j] = vals
         return oof
 

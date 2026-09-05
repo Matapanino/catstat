@@ -6,6 +6,13 @@ All notable changes to `catstat` are documented here. Format follows
 ## [Unreleased]
 
 ### Fixed
+- LOO/ordered smoothing and singleton fallbacks now use label-excluded priors:
+  the other eligible rows' global mean for LOO, and the preceding eligible rows'
+  global mean for ordered. Empty history uses fixed `0.0`. Prefix/suffix sums
+  avoid including a label and subtracting it back. Missing rows under
+  `handle_missing="return_nan"` do not contribute to these priors. This deliberately
+  changes training encodings; full-fit inference maps and smoothing weights stay
+  unchanged. Class-schema discovery/selection still uses the full supplied target.
 - `fit_transform` rejects unsupported fit parameters (including `sample_weight`
   and `groups`) with `TypeError` before host/device dispatch or estimator mutation,
   for all three encoders. Weighted statistics remain unsupported.

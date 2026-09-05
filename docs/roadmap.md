@@ -253,3 +253,7 @@ Custom-CV training supports are honored; malformed fold indices fail explicitly.
 Standard KFold retains complement subtraction. No backend/default changes.
 All encoders reject unsupported fit metadata before dispatch; weighted statistics
 remain a separate, unimplemented capability.
+LOO/ordered now use other-row/prefix-only global priors, with fixed zero for empty
+support. Adversarial tests cover positive smoothing, singletons, very large own/future
+labels, missing support and classification with a fixed class schema. Full-fit
+transform semantics are preserved; device-resident LOO/ordered remain unsupported.

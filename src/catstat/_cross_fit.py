@@ -50,7 +50,26 @@ def make_folds(n_rows: int, y, splitter) -> list[tuple[np.ndarray, np.ndarray]]:
     A dummy feature matrix is passed for shape; stratified splitters use ``y``.
     """
     dummy_X = np.zeros((n_rows, 1))
-    return list(splitter.split(dummy_X, y))
+    folds = []
+    for f, (tr, te) in enumerate(splitter.split(dummy_X, y)):
+        indices = []
+        for name, idx in (("train", tr), ("test", te)):
+            idx = np.asarray(idx)
+            context = f"CV fold {f} {name} indices"
+            if idx.ndim != 1:
+                raise ValueError(f"{context} must be one-dimensional.")
+            if idx.dtype.kind not in "iu":
+                raise ValueError(f"{context} must have integer dtype.")
+            if ((idx < 0) | (idx >= n_rows)).any():
+                raise ValueError(f"{context} are out of range [0, {n_rows}).")
+            if np.unique(idx).size != idx.size:
+                raise ValueError(f"{context} contain duplicate rows.")
+            indices.append(idx.astype(np.intp, copy=False))
+        tr, te = indices
+        if np.intersect1d(tr, te, assume_unique=True).size:
+            raise ValueError(f"CV fold {f} train and test indices overlap.")
+        folds.append((tr, te))
+    return folds
 
 
 def loo_encode(keys, y, m: float, prior: float) -> np.ndarray:

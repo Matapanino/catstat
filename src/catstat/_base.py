@@ -642,8 +642,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             fold_id = self._partition_fold_id(folds, X.shape[0])
             if fold_id is None:
                 raise NotImplementedError(
-                    "cuDF input requires a partitioning CV (KFold/StratifiedKFold-like); "
-                    "arbitrary overlapping splits are host-only -- pass X.to_pandas()."
+                    "cuDF input requires partitioning test folds with exact training "
+                    "complements (KFold/StratifiedKFold-like); custom training supports "
+                    "and overlapping splits are host-only -- pass X.to_pandas()."
                 )
             _device.kfold_oof_columns(self, units, y, fold_id, len(folds), cols)
         del self._device_units  # free the device code cache; transform never needs it
@@ -714,12 +715,19 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _partition_fold_id(folds, n):
-        """Integer fold-id per row if the folds partition ``[0, n)`` (each row in exactly one test
-        fold), else ``None``. ``KFold``/``StratifiedKFold`` partition; arbitrary user CV may not, so
-        the fast path is gated on this and otherwise falls back to the per-fold loop."""
+        """Return fold IDs only for test partitions with exact training complements.
+
+        2026-09-05 WP1: test coverage alone is insufficient for purged/custom CV.
+        Indices are validated by ``make_folds`` before dispatch. Otherwise the host
+        path honors the supplied training sets through its per-fold loop.
+        """
         fold_id = np.full(n, -1, dtype=np.int64)
-        for f, (_tr, te) in enumerate(folds):
+        for f, (tr, te) in enumerate(folds):
             te = np.asarray(te)
+            # With unique, in-range, disjoint indices, this is exact set equality
+            # regardless of training-index order; no sorting of the training set needed.
+            if len(tr) + len(te) != n:
+                return None
             if (fold_id[te] >= 0).any():  # overlapping test folds -> not a partition
                 return None
             fold_id[te] = f

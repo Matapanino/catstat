@@ -9,6 +9,15 @@ Most M0 deferrals are resolved; the remaining rows are honest environment notes.
 exact) plus the `leakage-audit` gate; KI-010 (auto-smoothing parity) is resolved — catstat's
 `smooth="auto"` is exactly sklearn's formula.
 
+## Boundary repairs (2026-09-05, WP1; Unreleased)
+
+- **Custom CV:** the additive fast path now requires partitioning test folds and
+  exact training complements. Purged/support-excluded splits use the supplied
+  training indices on the host path. Both paths reject invalid per-fold indices;
+  repeated test rows across different folds retain the existing host slow-path
+  behavior (last assignment wins; uncovered rows remain NaN). Device-resident
+  non-complement CV raises and asks for host input.
+
 ## Intentional deferrals (not bugs — do not "fix" without a roadmap change)
 | id | sev | item | notes |
 |----|-----|------|-------|

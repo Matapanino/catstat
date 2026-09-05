@@ -3,6 +3,14 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Custom/purged CV now honors the supplied training indices: complement-subtraction
+  runs only for exact training complements. Invalid duplicate, non-integer,
+  multidimensional, out-of-range or train/test-overlapping indices raise `ValueError`.
+  Device-resident custom supports fail explicitly and require host input.
+
 ## [0.5.2] — 2026-07-02
 
 ### Added

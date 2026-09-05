@@ -11,6 +11,9 @@ exact) plus the `leakage-audit` gate; KI-010 (auto-smoothing parity) is resolved
 
 ## Boundary repairs (2026-09-05, WP1; Unreleased)
 
+- **Fit metadata:** `fit_transform` rejects all extra fit parameters, including
+  `sample_weight=None`, on every encoder and backend. No weighted-statistics API
+  is implemented; callers must not assume weights/groups were applied.
 - **Custom CV:** the additive fast path now requires partitioning test folds and
   exact training complements. Purged/support-excluded splits use the supplied
   training indices on the host path. Both paths reject invalid per-fold indices;

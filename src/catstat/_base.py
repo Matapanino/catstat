@@ -605,6 +605,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         return self._wrap_output(arr, was_df, Xdf)
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Fit and encode; unsupported fit metadata raises before any state changes.
+
+        2026-09-05 WP1: weights/groups are not implemented and must never be ignored.
+        """
+        if fit_params:
+            names = ", ".join(sorted(fit_params))
+            raise TypeError(f"Unsupported fit parameters: {names}.")
         if is_device_frame(X):
             return self._fit_transform_device(X, y)
         self.fit(X, y)

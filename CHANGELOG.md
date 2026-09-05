@@ -6,6 +6,9 @@ All notable changes to `catstat` are documented here. Format follows
 ## [Unreleased]
 
 ### Fixed
+- `fit_transform` rejects unsupported fit parameters (including `sample_weight`
+  and `groups`) with `TypeError` before host/device dispatch or estimator mutation,
+  for all three encoders. Weighted statistics remain unsupported.
 - Custom/purged CV now honors the supplied training indices: complement-subtraction
   runs only for exact training complements. Invalid duplicate, non-integer,
   multidimensional, out-of-range or train/test-overlapping indices raise `ValueError`.

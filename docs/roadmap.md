@@ -251,3 +251,5 @@ CI green on Python 3.10–3.12 / pandas 1.5–3.0. Publishing is tag-driven (Tru
 
 Custom-CV training supports are honored; malformed fold indices fail explicitly.
 Standard KFold retains complement subtraction. No backend/default changes.
+All encoders reject unsupported fit metadata before dispatch; weighted statistics
+remain a separate, unimplemented capability.

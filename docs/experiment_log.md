@@ -14,6 +14,39 @@ session retries a dead end. Newest at the top. Each entry links its verdict when
 
 ---
 
+## 2026-09-05 — WP1 boundary regression audit
+- Scope: dedicated `fix/cv-boundaries-0.5.3` worktree from `3240421`; three
+  separate changes for custom CV, rejected fit metadata, and label-excluded priors.
+- TDD: custom-CV regressions **23 failed / 3 passed** before repair; unsupported
+  fit metadata **19 failed**; strict LOO/ordered priors **26 failed**. Each group
+  passed after implementation. Tests include purged-label mutation, explicit
+  training-support reconstruction, standard-KFold fast dispatch, pre-dispatch
+  metadata rejection, and own/future-label mutation to `1e16`.
+- Green gate: `PATH="$PWD/.venv/bin:$PATH" OMP_NUM_THREADS=1 bash scripts/check.sh`;
+  final **428 passed, 33 skipped**, lint and all six runnable examples green.
+  `pytest tests/ -q --cov=catstat --cov-report=term-missing`: **91.83%**, above 85%.
+  Environment: uv worktree venv, Python 3.13.14, sklearn 1.9.0, numpy 2.5.2,
+  pandas 3.0.5. GPU/parity skipped locally, not revalidated.
+- Leakage audit **PASS within the documented fixed target-schema contract**:
+  explicit custom-support reconstruction and excluded-label mutation pass;
+  standard KFold reconstruction is allclose (not promised bitwise, as in the
+  existing complement kernel). Noise trap (`make_leakage_trap`, n=2000,
+  n_levels=1000, seed=3, encoder random_state=0, smooth=0): OOF correlations
+  kfold **0.05162158932022324**, loo **0.05918299096335204**, ordered
+  **0.048946156691466**; full-fit-on-train **0.6912653865417454** for all.
+  Unknown/full-transform fallbacks, missing support, and supervised/unsupervised
+  asymmetry remain covered by the suite. No competition fits or performance claims.
+- sklearn-compat **PASS**: clone/get-set params, Pipeline, ColumnTransformer,
+  pandas set_output, feature names, pickle round-trip, and the documented estimator
+  subset. Existing waivers in `tests/test_check_estimator.py` remain: sparse input,
+  by-name feature counts, accepted 1-D input, empty-data messages; target-specific
+  y-message and single-sample checks; unsupervised complex-input messaging.
+- Deliberate contract amendment: LOO global prior excludes the row; ordered global
+  prior uses only preceding eligible rows; empty history is fixed zero. Full-fit
+  inference maps remain unchanged. Full-data class/type/schema discovery is not
+  redesigned. Device-resident LOO/ordered remain unsupported; fake-device metadata
+  tests verify rejection order only, not GPU computation.
+
 ## 2026-06-26 — project bootstrap (design phase)
 - Hypothesis: a unified CPU/GPU, statistically-general, leakage-safe encoder fills a real gap left
   by sklearn (CPU/mean-only), cuML (GPU/RAPIDS-only), and category_encoders (no cross-fit).

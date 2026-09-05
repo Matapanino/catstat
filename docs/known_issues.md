@@ -9,6 +9,27 @@ Most M0 deferrals are resolved; the remaining rows are honest environment notes.
 exact) plus the `leakage-audit` gate; KI-010 (auto-smoothing parity) is resolved — catstat's
 `smooth="auto"` is exactly sklearn's formula.
 
+## Boundary repairs (2026-09-05, WP1; Unreleased)
+
+- **LOO/ordered prior contract:** amended deliberately on 2026-09-05 (WP1).
+  Both category evidence and priors exclude the current target; ordered additionally
+  excludes future targets. LOO uses the other eligible labels' global mean;
+  ordered uses the prefix's global mean. Empty history is fixed `0.0` (all-zero
+  class statistics, not normalized probabilities). Missing feature rows with
+  `return_nan` are excluded from support. Full-fit inference priors are unchanged.
+  The label-exclusion claim is conditional on target type/class schema: full-data
+  type inference, discovered classes and `max_classes` column selection can still
+  change when labels change. This repair does not redesign output-schema selection.
+- **Fit metadata:** `fit_transform` rejects all extra fit parameters, including
+  `sample_weight=None`, on every encoder and backend. No weighted-statistics API
+  is implemented; callers must not assume weights/groups were applied.
+- **Custom CV:** the additive fast path now requires partitioning test folds and
+  exact training complements. Purged/support-excluded splits use the supplied
+  training indices on the host path. Both paths reject invalid per-fold indices;
+  repeated test rows across different folds retain the existing host slow-path
+  behavior (last assignment wins; uncovered rows remain NaN). Device-resident
+  non-complement CV raises and asks for host input.
+
 ## Intentional deferrals (not bugs — do not "fix" without a roadmap change)
 | id | sev | item | notes |
 |----|-----|------|-------|

@@ -605,6 +605,13 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
         return self._wrap_output(arr, was_df, Xdf)
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Fit and encode; unsupported fit metadata raises before any state changes.
+
+        2026-09-05 WP1: weights/groups are not implemented and must never be ignored.
+        """
+        if fit_params:
+            names = ", ".join(sorted(fit_params))
+            raise TypeError(f"Unsupported fit parameters: {names}.")
         if is_device_frame(X):
             return self._fit_transform_device(X, y)
         self.fit(X, y)
@@ -642,8 +649,9 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
             fold_id = self._partition_fold_id(folds, X.shape[0])
             if fold_id is None:
                 raise NotImplementedError(
-                    "cuDF input requires a partitioning CV (KFold/StratifiedKFold-like); "
-                    "arbitrary overlapping splits are host-only -- pass X.to_pandas()."
+                    "cuDF input requires partitioning test folds with exact training "
+                    "complements (KFold/StratifiedKFold-like); custom training supports "
+                    "and overlapping splits are host-only -- pass X.to_pandas()."
                 )
             _device.kfold_oof_columns(self, units, y, fold_id, len(folds), cols)
         del self._device_units  # free the device code cache; transform never needs it
@@ -714,12 +722,19 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _partition_fold_id(folds, n):
-        """Integer fold-id per row if the folds partition ``[0, n)`` (each row in exactly one test
-        fold), else ``None``. ``KFold``/``StratifiedKFold`` partition; arbitrary user CV may not, so
-        the fast path is gated on this and otherwise falls back to the per-fold loop."""
+        """Return fold IDs only for test partitions with exact training complements.
+
+        2026-09-05 WP1: test coverage alone is insufficient for purged/custom CV.
+        Indices are validated by ``make_folds`` before dispatch. Otherwise the host
+        path honors the supplied training sets through its per-fold loop.
+        """
         fold_id = np.full(n, -1, dtype=np.int64)
-        for f, (_tr, te) in enumerate(folds):
+        for f, (tr, te) in enumerate(folds):
             te = np.asarray(te)
+            # With unique, in-range, disjoint indices, this is exact set equality
+            # regardless of training-index order; no sorting of the training set needed.
+            if len(tr) + len(te) != n:
+                return None
             if (fold_id[te] >= 0).any():  # overlapping test folds -> not a partition
                 return None
             fold_id[te] = f
@@ -830,14 +845,20 @@ class _BaseStatEncoder(TransformerMixin, BaseEstimator):
                 continue
             keys, missing_mask = self._unit_keys(Xdf, self._unit_cols[meta.feature])
             yv = self._mean_y_vector(y_arr, meta)
-            prior = float(yv.mean())
+            # 2026-09-05 WP1: priors use the same eligible rows as category statistics.
+            active = np.flatnonzero(~missing_mask) if self.handle_missing == "return_nan" else (
+                np.arange(len(yv))
+            )
+            vals = np.full(len(yv), np.nan)
             if scheme == "loo":
-                vals = loo_encode(keys, yv, m, prior)
+                vals[active] = loo_encode(keys[active], yv[active], m)
             else:
-                vals = ordered_encode(keys, yv, a, prior, perm)
-            if self.handle_missing == "return_nan":
-                vals = vals.copy()
-                vals[missing_mask] = np.nan
+                # Restrict the original permutation without reshuffling eligible rows.
+                local = np.full(len(yv), -1, dtype=np.intp)
+                local[active] = np.arange(len(active))
+                local_perm = local[perm]
+                local_perm = local_perm[local_perm >= 0]
+                vals[active] = ordered_encode(keys[active], yv[active], a, local_perm)
             oof[:, j] = vals
         return oof
 

@@ -18,6 +18,18 @@ class TargetEncoder(_BaseStatEncoder):
     ``"ordered"`` (CatBoost-style ordered target statistics). ``loo``/``ordered`` apply to the mean
     only (use with ``stats=["mean"]``, optionally plus count/frequency).
 
+    Prior contract (2026-09-05 WP1): LOO uses the global mean of all other eligible
+    rows; ordered uses the global mean of preceding eligible rows in its permutation.
+    Empty support uses the fixed value 0.0, including single-row LOO and the first
+    ordered row. With ``handle_missing="return_nan"``, missing feature rows do not
+    contribute to that feature's category statistics or prior. These guarantees are
+    conditional on the fitted target schema (type, class labels and selected output
+    columns); changing that schema, including ``max_classes`` selection, can change
+    output meaning/width. Empty-history multiclass outputs are all zero, not a
+    normalized probability vector. Later ``transform`` still uses full-fit maps and
+    priors. LOO uses weight 0 for ``smooth="auto"``; ordered uses weight 1 for
+    ``"auto"`` or non-positive smoothing, as before.
+
     ``numeric`` opts numeric columns into encoding (default ``"ignore"`` keeps today's behavior:
     ``cols="auto"`` skips numerics). ``"auto"`` routes each numeric column by cardinality -- at most
     ``cardinality_threshold`` distinct values are encoded **directly** (each value a category),

@@ -3,6 +3,24 @@
 All notable changes to `catstat` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- LOO/ordered smoothing and singleton fallbacks now use label-excluded priors:
+  the other eligible rows' global mean for LOO, and the preceding eligible rows'
+  global mean for ordered. Empty history uses fixed `0.0`. Prefix/suffix sums
+  avoid including a label and subtracting it back. Missing rows under
+  `handle_missing="return_nan"` do not contribute to these priors. This deliberately
+  changes training encodings; full-fit inference maps and smoothing weights stay
+  unchanged. Class-schema discovery/selection still uses the full supplied target.
+- `fit_transform` rejects unsupported fit parameters (including `sample_weight`
+  and `groups`) with `TypeError` before host/device dispatch or estimator mutation,
+  for all three encoders. Weighted statistics remain unsupported.
+- Custom/purged CV now honors the supplied training indices: complement-subtraction
+  runs only for exact training complements. Invalid duplicate, non-integer,
+  multidimensional, out-of-range or train/test-overlapping indices raise `ValueError`.
+  Device-resident custom supports fail explicitly and require host input.
+
 ## [0.5.2] — 2026-07-02
 
 ### Added
